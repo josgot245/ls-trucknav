@@ -1,0 +1,17 @@
+*.iml
+.gradle
+.kotlin
+/local.properties
+/.idea
+.DS_Store
+build/
+/captures
+.externalNativeBuild
+.cxx
+/setup.log
+/setup-env.ps1
+
+# Build-Artefakte
+*.apk
+*.aab
+*.log
