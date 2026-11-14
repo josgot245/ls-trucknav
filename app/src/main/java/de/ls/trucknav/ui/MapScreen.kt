@@ -3,6 +3,7 @@ package de.ls.trucknav.ui
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -23,19 +24,31 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.ForkLeft
+import androidx.compose.material.icons.filled.ForkRight
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Straight
+import androidx.compose.material.icons.filled.TurnLeft
+import androidx.compose.material.icons.filled.TurnRight
+import androidx.compose.material.icons.filled.TurnSharpLeft
+import androidx.compose.material.icons.filled.TurnSharpRight
+import androidx.compose.material.icons.filled.TurnSlightLeft
+import androidx.compose.material.icons.filled.TurnSlightRight
+import androidx.compose.material.icons.filled.UTurnLeft
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -56,21 +69,30 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.ls.trucknav.model.HeightRestriction
+import de.ls.trucknav.model.JunctionSign
+import de.ls.trucknav.model.LaneGuide
+import de.ls.trucknav.model.Maneuver
 import de.ls.trucknav.model.Place
 import de.ls.trucknav.model.SpeedCamera
+import de.ls.trucknav.model.TrafficKind
+import de.ls.trucknav.model.TrafficWarning
 import de.ls.trucknav.nav.NavUpdate
 import de.ls.trucknav.ui.components.SpeedLimitSign
 import de.ls.trucknav.ui.components.WarningTriangle
+import de.ls.trucknav.ui.map.MapControls
 import de.ls.trucknav.ui.map.TruckMapView
 import de.ls.trucknav.ui.theme.AppBackground
 import de.ls.trucknav.ui.theme.AppDanger
@@ -90,6 +112,7 @@ import kotlin.math.roundToInt
 fun MapScreen(viewModel: MainViewModel = viewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var recenterSignal by remember { mutableIntStateOf(0) }
+    val mapControls = remember { MapControls() }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -147,6 +170,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             state = state,
             modifier = Modifier.fillMaxSize(),
             recenterSignal = recenterSignal,
+            controls = mapControls,
         )
 
         Text(
@@ -176,6 +200,19 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     .padding(horizontal = 12.dp, vertical = 8.dp)
             ) {
                 InstructionCard(state)
+                val nav = state.nav
+                val maneuver = nav?.nextManeuver
+                val showLanes = !state.arrived && nav != null && !nav.offRoute &&
+                    maneuver != null &&
+                    nav.distanceToManeuver <= LANE_GUIDE_DISTANCE_M &&
+                    (maneuver.lanes.size >= 2 || maneuver.sign != null)
+                if (showLanes) {
+                    Spacer(Modifier.height(8.dp))
+                    LaneGuidancePanel(
+                        maneuver = maneuver,
+                        distance = nav.distanceToManeuver,
+                    )
+                }
             }
         }
 
@@ -186,12 +223,52 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 .navigationBarsPadding()
                 .padding(12.dp)
         ) {
+            state.heightWarning?.let { restriction ->
+                HeightWarningBanner(
+                    restriction = restriction,
+                    distance = state.heightWarningDistance,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
+            state.trafficWarning?.let { warning ->
+                TrafficWarningBanner(
+                    warning = warning,
+                    distance = state.trafficWarningDistance,
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
             state.cameraWarning?.let { camera ->
                 CameraWarningBanner(
                     camera = camera,
                     distance = state.cameraWarningDistance,
                 )
                 Spacer(Modifier.height(8.dp))
+            }
+
+            // Zentrieren ist immer erreichbar, auch ohne aktive Zielfuehrung.
+            // Waehrend der Navigation sitzt der Button im NavDashboard.
+            if (!state.navActive) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    if (state.location != null) {
+                        SpeedBadge(state)
+                    } else {
+                        Spacer(Modifier.width(0.dp))
+                    }
+                    RoundIconButton(
+                        imageVector = Icons.Filled.MyLocation,
+                        contentDescription = "Auf Position zentrieren",
+                        onClick = { recenterSignal++ },
+                    )
+                }
+                if (state.route != null || state.routing || state.destination != null) {
+                    Spacer(Modifier.height(8.dp))
+                }
             }
 
             when {
@@ -218,6 +295,14 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             }
         }
 
+        // Zoom und Kompass am rechten Rand – immer erreichbar.
+        MapControlButtons(
+            controls = mapControls,
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp),
+        )
+
         SnackbarHost(
             hostState = snackbarHostState,
             modifier = Modifier
@@ -225,7 +310,6 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 .navigationBarsPadding()
                 .padding(bottom = 220.dp, start = 16.dp, end = 16.dp),
         )
-
         if (state.arrived && state.navActive) {
             ArrivalOverlay(
                 destinationName = state.destination?.name,
@@ -245,10 +329,18 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
         if (state.showSettings) {
             SettingsSheet(
                 state = state,
-                onSave = { profile, url, fallback, voice, cameras ->
+                onSave = { profile, options ->
                     viewModel.saveProfile(profile)
-                    viewModel.saveAppSettings(url, fallback, cameras)
-                    if (voice != state.voiceEnabled) viewModel.toggleVoice()
+                    viewModel.saveAppSettings(
+                        routingUrl = options.routingUrl,
+                        carFallback = options.carFallback,
+                        cameraWarnings = options.cameraWarnings,
+                        trafficWarnings = options.trafficWarnings,
+                        truckPois = options.truckPois,
+                        heightWarnings = options.heightWarnings,
+                        mapStyleMode = options.mapStyleMode,
+                    )
+                    if (options.voiceEnabled != state.voiceEnabled) viewModel.toggleVoice()
                     viewModel.closeSettings()
                 },
                 onDismiss = viewModel::closeSettings,
@@ -383,6 +475,104 @@ private fun InfoPill(text: String, warning: Boolean = false) {
     }
 }
 
+/** Dauerhafte Geschwindigkeitsanzeige unten links (auch ohne Navigation). */
+@Composable
+private fun SpeedBadge(state: UiState) {
+    val over = state.speedLimitKmh != null && state.speedKmh > state.speedLimitKmh + 3
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = AppSurface,
+        shadowElevation = 6.dp,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Text(
+                text = state.speedKmh.roundToInt().toString(),
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.Bold,
+                color = if (over) AppDanger else AppText,
+            )
+            Spacer(Modifier.width(4.dp))
+            Text(
+                text = "km/h",
+                style = MaterialTheme.typography.labelSmall,
+                color = AppTextMuted,
+                modifier = Modifier.padding(bottom = 4.dp),
+            )
+        }
+    }
+}
+
+/** Zoom- und Kompass-Schaltflaechen am rechten Kartenrand. */
+@Composable
+private fun MapControlButtons(
+    controls: MapControls,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.End,
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        RoundIconButton(
+            imageVector = Icons.Filled.Explore,
+            contentDescription = if (controls.northUp) {
+                "In Fahrtrichtung ausrichten"
+            } else {
+                "Nach Norden ausrichten"
+            },
+            active = controls.northUp,
+            size = 48.dp,
+            onClick = { controls.compass() },
+        )
+        RoundIconButton(
+            imageVector = Icons.Filled.Add,
+            contentDescription = "Vergrößern",
+            size = 48.dp,
+            onClick = { controls.zoomIn() },
+        )
+        RoundIconButton(
+            imageVector = Icons.Filled.Remove,
+            contentDescription = "Verkleinern",
+            size = 48.dp,
+            onClick = { controls.zoomOut() },
+        )
+    }
+}
+
+/**
+ * Runde Schaltflaeche in der UI-Farbe (Rot) mit weissem Symbol.
+ * [active] kennzeichnet einen aktiven Zustand zusaetzlich mit weissem Rand.
+ */
+@Composable
+private fun RoundIconButton(
+    imageVector: ImageVector,
+    contentDescription: String,
+    onClick: () -> Unit,
+    size: Dp = 52.dp,
+    active: Boolean = false,
+) {
+    Surface(
+        shape = CircleShape,
+        color = AppPrimary,
+        border = if (active) BorderStroke(2.dp, Color.White) else null,
+        shadowElevation = 6.dp,
+    ) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier.size(size),
+        ) {
+            Icon(
+                imageVector = imageVector,
+                contentDescription = contentDescription,
+                tint = Color.White,
+            )
+        }
+    }
+}
+
 @Composable
 private fun InstructionCard(state: UiState) {
     val nav = state.nav
@@ -457,6 +647,144 @@ private fun InstructionCard(state: UiState) {
         }
     }
 }
+
+/**
+ * Zeigt die zu nehmende Spur an der naechsten Verzweigung sowie eine
+ * generierte Beschilderung (z. B. Autobahn-Ausfahrt).
+ */
+@Composable
+private fun LaneGuidancePanel(maneuver: Maneuver, distance: Double) {
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = AppSurface,
+        shadowElevation = 12.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = if (distance < 35.0) "Jetzt" else "In ${formatDistance(distance)}",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = AppSecondary,
+                )
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    text = maneuver.instruction,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppTextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            maneuver.sign?.let { sign ->
+                Spacer(Modifier.height(10.dp))
+                JunctionSignView(sign)
+            }
+            if (maneuver.lanes.size >= 2) {
+                Spacer(Modifier.height(10.dp))
+                LaneRow(maneuver.lanes)
+            }
+        }
+    }
+}
+
+/** Reihe von Spur-Pfeilen; die aktive Spur ist rot hervorgehoben. */
+@Composable
+private fun LaneRow(lanes: List<LaneGuide>) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        lanes.forEach { lane ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (lane.active) AppPrimary else AppSurfaceVariant,
+                modifier = Modifier
+                    .weight(1f)
+                    .height(50.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = laneIcon(lane.directions),
+                        contentDescription = null,
+                        tint = if (lane.active) Color.White else AppTextMuted,
+                        modifier = Modifier.size(30.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** Generiertes Autobahn-Schild mit Ausfahrtsnummer und Zielorten. */
+@Composable
+private fun JunctionSignView(sign: JunctionSign) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = AutobahnBlue,
+        border = BorderStroke(2.dp, Color.White),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            sign.exitNumber?.let { number ->
+                Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = Color.White,
+                ) {
+                    Text(
+                        text = number,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.Black,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+            }
+            Column {
+                val targets = sign.toward.ifEmpty { listOfNotNull(sign.name) }
+                if (targets.isEmpty()) {
+                    Text(
+                        text = "Ausfahrt",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                    )
+                } else {
+                    targets.forEach { target ->
+                        Text(
+                            text = target,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Fahrtrichtung (Bitmaske) -> passendes Material-Symbol. */
+private fun laneIcon(directions: Int): ImageVector =
+    when (LaneGuide.primaryDirection(directions)) {
+        LaneGuide.U_TURN -> Icons.Filled.UTurnLeft
+        LaneGuide.SHARP_LEFT -> Icons.Filled.TurnSharpLeft
+        LaneGuide.SHARP_RIGHT -> Icons.Filled.TurnSharpRight
+        LaneGuide.LEFT -> Icons.Filled.TurnLeft
+        LaneGuide.RIGHT -> Icons.Filled.TurnRight
+        LaneGuide.SLIGHT_LEFT -> Icons.Filled.TurnSlightLeft
+        LaneGuide.SLIGHT_RIGHT -> Icons.Filled.TurnSlightRight
+        LaneGuide.MERGE_LEFT -> Icons.Filled.ForkLeft
+        LaneGuide.MERGE_RIGHT -> Icons.Filled.ForkRight
+        else -> Icons.Filled.Straight
+    }
 
 @Composable
 private fun RouteCard(
@@ -643,33 +971,27 @@ private fun NavDashboard(
                     Spacer(Modifier.width(8.dp))
                     Text("Navigation beenden")
                 }
-                FilledTonalIconButton(
+                RoundIconButton(
+                    imageVector = if (state.voiceEnabled) {
+                        Icons.Filled.VolumeUp
+                    } else {
+                        Icons.Filled.VolumeOff
+                    },
+                    contentDescription = if (state.voiceEnabled) "Sprachansage aus" else "Sprachansage an",
                     onClick = onToggleVoice,
-                    modifier = Modifier.size(52.dp),
-                ) {
-                    Icon(
-                        imageVector = if (state.voiceEnabled) {
-                            Icons.Filled.VolumeUp
-                        } else {
-                            Icons.Filled.VolumeOff
-                        },
-                        contentDescription = if (state.voiceEnabled) "Sprachansage aus" else "Sprachansage an",
-                    )
-                }
-                FilledTonalIconButton(
+                )
+                RoundIconButton(
+                    imageVector = Icons.Filled.MyLocation,
+                    contentDescription = "Auf Position zentrieren",
                     onClick = onRecenter,
-                    modifier = Modifier.size(52.dp),
-                ) {
-                    Icon(Icons.Filled.MyLocation, contentDescription = "Auf Position zentrieren")
-                }
+                )
             }
         }
     }
 }
 
 @Composable
-private fun CameraWarningBanner(camera: SpeedCamera, distance: Double) {
-    Surface(
+private fun CameraWarningBanner(camera: SpeedCamera, distance: Double) {    Surface(
         shape = RoundedCornerShape(20.dp),
         color = AppSurface,
         shadowElevation = 10.dp,
@@ -692,6 +1014,106 @@ private fun CameraWarningBanner(camera: SpeedCamera, distance: Double) {
                 Text(
                     text = camera.maxSpeedKmh?.let { "erlaubt $it km/h · OpenStreetMap" }
                         ?: "Geschwindigkeitskontrolle · OpenStreetMap",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppTextMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TrafficWarningBanner(warning: TrafficWarning, distance: Double) {
+    val label = when {
+        warning.blocked -> "Sperrung"
+        warning.kind == TrafficKind.CLOSURE -> "Sperrung"
+        warning.jam -> "Stau"
+        warning.kind == TrafficKind.ROADWORKS -> "Baustelle"
+        else -> "Verkehrsmeldung"
+    }
+    val accent = if (warning.blocked || warning.kind == TrafficKind.CLOSURE) {
+        AppDanger
+    } else {
+        AppSecondary
+    }
+    val detail = buildString {
+        append(warning.subtitle ?: warning.title)
+        if (warning.jam && warning.averageSpeedKmh != null) {
+            append(" · Ø ${warning.averageSpeedKmh} km/h")
+        }
+        if (warning.delayMinutes != null && warning.delayMinutes > 0) {
+            append(" · +${warning.delayMinutes} min")
+        }
+    }
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = AppSurface,
+        shadowElevation = 10.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Warning,
+                contentDescription = null,
+                tint = accent,
+                modifier = Modifier.size(30.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "$label in ${formatDistance(distance)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = AppText,
+                    maxLines = 1,
+                )
+                Text(
+                    text = detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = AppTextMuted,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeightWarningBanner(restriction: HeightRestriction, distance: Double) {
+    val height = String.format(java.util.Locale.GERMANY, "%.2f", restriction.maxHeightM)
+    Surface(
+        shape = RoundedCornerShape(20.dp),
+        color = AppSurface,
+        shadowElevation = 10.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Warning,
+                contentDescription = null,
+                tint = AppDanger,
+                modifier = Modifier.size(30.dp),
+            )
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Durchfahrtshöhe $height m in ${formatDistance(distance)}",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = AppText,
+                    maxLines = 1,
+                )
+                Text(
+                    text = restriction.name ?: "Niedrigere Durchfahrt als Fahrzeughöhe · OpenStreetMap",
                     style = MaterialTheme.typography.bodySmall,
                     color = AppTextMuted,
                     maxLines = 1,
@@ -893,3 +1315,9 @@ private fun ArrivalOverlay(destinationName: String?, onStop: () -> Unit) {
         }
     }
 }
+
+/** Ab dieser Entfernung zum Manoever wird die Spurführung eingeblendet. */
+private const val LANE_GUIDE_DISTANCE_M = 800.0
+
+/** Farbe des generierten Autobahn-Schilds. */
+private val AutobahnBlue = Color(0xFF1A4FA0)

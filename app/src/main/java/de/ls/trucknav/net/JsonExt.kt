@@ -3,6 +3,7 @@ package de.ls.trucknav.net
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -24,4 +25,10 @@ internal fun JsonObject.intOrNull(key: String): Int? {
     val value = this[key]
     if (value == null || value is JsonNull) return null
     return (value as? JsonPrimitive)?.intOrNull
+}
+
+internal fun JsonObject.booleanOrNull(key: String): Boolean? {
+    val value = this[key]
+    if (value == null || value is JsonNull) return null
+    return (value as? JsonPrimitive)?.booleanOrNull
 }

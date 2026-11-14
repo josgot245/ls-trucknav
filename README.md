@@ -3,7 +3,7 @@
 Firmeninterne LKW-Navigations-App für Android. Karte, Adresssuche, LKW-Routing
 mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
-**Version:** 0.2.0
+**Version:** 0.3.0
 
 ---
 
@@ -26,6 +26,20 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   Navigation; bei Überschreitung wird die Geschwindigkeit rot
 - **Blitzer-Warnungen** (abschaltbar): Hinweisbanner + Ansage vor stationären
   Blitzern aus OpenStreetMap, Marker auf der Karte
+- **Live-Verkehr** von der Autobahn GmbH (kostenlos, ohne Key): Stau,
+  stockender Verkehr, Sperrungen und Baustellen auf Autobahnen – als
+  Hinweisbanner und Markierung auf der Karte
+- **LKW-POIs** (abschaltbar): LKW-Parkplätze, Raststätten/Autohöfe und
+  LKW-taugliche Tankstellen aus OpenStreetMap
+- **Durchfahrtshöhen-Warnung** (standardmäßig an): Brücken und Tunnel mit
+  lichter Höhe aus OpenStreetMap; Warnung, wenn die eingestellte Fahrzeughöhe
+  nicht passt
+- **Spurführung**: an Verzweigungen wird die zu nehmende Spur angezeigt, dazu
+  eine aus OpenStreetMap generierte Beschilderung (Ausfahrtsnummer und Ziele)
+- **Tag/Nacht-Karte**: automatischer Wechsel nach Sonnenauf-/untergang am
+  Standort, manuell übersteuerbar (Automatisch/Hell/Dunkel); im dunklen Design
+  sind die Straßen hervorgehoben
+- **Bedienelemente** in der Firmenfarbe Rot (Zoom, Kompass, Zentrieren, Sprache)
 - **PKW-Fallback**, wenn keine LKW-Route gefunden wird (abschaltbar)
 - Einstellungen dauerhaft gespeichert (DataStore)
 
@@ -33,7 +47,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
 ## Installation auf dem Handy
 
-1. `LS-TruckNav-0.2.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
+1. `LS-TruckNav-0.3.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
 2. Datei antippen → „Installieren“. Falls gefragt: „Unbekannte Quellen“ für den
    Dateimanager erlauben.
 3. Beim ersten Start **Standortberechtigung** erteilen.
@@ -41,7 +55,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 Alternativ per USB-Debugging:
 
 ```powershell
-adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.2.0.apk"
+adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.3.0.apk"
 ```
 
 Voraussetzung: Android 10 oder neuer.
@@ -84,6 +98,10 @@ Während der Navigation bleibt der Bildschirm an.
   doppelte, zu ungenaue und unmögliche Sprünge werden verworfen).
 - Position, Kurs und Geschwindigkeit werden zeitbasiert geglättet, die Karte
   folgt mit einer weichen Interpolation statt bei jedem GPS-Fix zu springen.
+- Die eigene Position ist ein **Richtungspfeil** (weiß gefüllt, roter Rand),
+  der mit der Fahrtrichtung dreht – nativ als Vektor gezeichnet
+  (`res/drawable/ic_nav_arrow.xml`), damit er bei jeder Displaydichte scharf
+  bleibt.
 - Wird die Route verlassen, berechnet die App automatisch neu (frühestens
   alle 8 Sekunden). Schlägt das fehl, erscheint eine Meldung; nach mehreren
   Fehlversuchen hilft ein Neustart der Navigation. Beim Zurückkehren auf die
@@ -118,11 +136,15 @@ Während der Navigation bleibt der Bildschirm an.
 |---|---|
 | Sprache | Kotlin, Jetpack Compose (Material 3) |
 | Karte | MapLibre Native Android 11.5.2 |
-| Kartenstil | OpenFreeMap „Dark" (Vektor-Tiles, kein Key) |
+| Kartenstil | OpenFreeMap „Liberty" (hell) / „Dark" (dunkel), Vektor-Tiles, kein Key |
 | Suche | Photon (Komoot), deutschsprachig |
 | Routing | Valhalla, `costing=truck` mit `costing_options` |
+| Spurführung | Valhalla `turn_lanes` (Spuren, Beschilderung) |
 | Tempolimit | Valhalla `trace_attributes` (Map-Matching, `edge.speed_limit`) |
 | Blitzer | OpenStreetMap über Overpass API (`highway=speed_camera`) |
+| LKW-POIs & Durchfahrtshöhen | OpenStreetMap über Overpass API |
+| Live-Verkehr | Autobahn App API (`verkehr.autobahn.de`, kein Key) |
+| Tag/Nacht | NOAA-Sonnenstandsberechnung nach Standort |
 | Standort | Android LocationManager, gefiltert und geglättet (kein Google Play Services nötig) |
 | Sprache | Android TextToSpeech, deutsch |
 | Einstellungen | DataStore Preferences |
@@ -165,7 +187,7 @@ Oder einfach:
 ```
 
 Das Skript baut die Release-Variante (mit Debug-Key signiert, intern
-installierbar) und kopiert sie als `LS-TruckNav-0.2.0.apk` ins Projektverzeichnis.
+installierbar) und kopiert sie als `LS-TruckNav-0.3.0.apk` ins Projektverzeichnis.
 
 ### App-Icon
 

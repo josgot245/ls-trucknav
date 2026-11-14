@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -31,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.ui.theme.AppPrimary
 import de.ls.trucknav.ui.theme.AppSurface
@@ -42,7 +44,7 @@ import java.util.Locale
 @Composable
 fun SettingsSheet(
     state: UiState,
-    onSave: (TruckProfile, String, Boolean, Boolean, Boolean) -> Unit,
+    onSave: (TruckProfile, AppOptions) -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -60,6 +62,10 @@ fun SettingsSheet(
     var carFallback by remember { mutableStateOf(state.carFallback) }
     var voice by remember { mutableStateOf(state.voiceEnabled) }
     var cameraWarnings by remember { mutableStateOf(state.cameraWarnings) }
+    var trafficWarnings by remember { mutableStateOf(state.trafficEnabled) }
+    var truckPois by remember { mutableStateOf(state.truckPoisEnabled) }
+    var heightWarnings by remember { mutableStateOf(state.heightWarningsEnabled) }
+    var mapStyleMode by remember { mutableStateOf(state.mapStyleMode) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -170,6 +176,50 @@ fun SettingsSheet(
                 checked = cameraWarnings,
                 onCheckedChange = { cameraWarnings = it },
             )
+            SwitchRow(
+                title = "Verkehrsmeldungen",
+                subtitle = "Stau, Sperrungen, Baustellen auf Autobahnen (Autobahn GmbH)",
+                checked = trafficWarnings,
+                onCheckedChange = { trafficWarnings = it },
+            )
+            SwitchRow(
+                title = "LKW-Punkte anzeigen",
+                subtitle = "Parkplätze, Raststätten, LKW-Tankstellen (OpenStreetMap)",
+                checked = truckPois,
+                onCheckedChange = { truckPois = it },
+            )
+            SwitchRow(
+                title = "Durchfahrtshöhen-Warnung",
+                subtitle = "Warnung vor zu niedrigen Brücken/Unterführungen (OpenStreetMap)",
+                checked = heightWarnings,
+                onCheckedChange = { heightWarnings = it },
+            )
+
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = AppTextMuted.copy(alpha = 0.15f))
+            Spacer(Modifier.height(16.dp))
+
+            SectionTitle("Karte")
+            Text(
+                text = "Kartenstil",
+                style = MaterialTheme.typography.bodyLarge,
+                color = AppText,
+            )
+            Text(
+                text = "Automatisch wechselt bei Sonnenauf- und -untergang am Standort.",
+                style = MaterialTheme.typography.bodySmall,
+                color = AppTextMuted,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                MapStyleMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = mapStyleMode == mode,
+                        onClick = { mapStyleMode = mode },
+                        label = { Text(mapStyleLabel(mode)) },
+                    )
+                }
+            }
 
             Spacer(Modifier.height(18.dp))
 
@@ -186,7 +236,19 @@ fun SettingsSheet(
                         avoidTolls = avoidTolls,
                         avoidHighways = avoidHighways,
                     )
-                    onSave(profile, routingUrl, carFallback, voice, cameraWarnings)
+                    onSave(
+                        profile,
+                        AppOptions(
+                            routingUrl = routingUrl,
+                            carFallback = carFallback,
+                            voiceEnabled = voice,
+                            cameraWarnings = cameraWarnings,
+                            trafficWarnings = trafficWarnings,
+                            truckPois = truckPois,
+                            heightWarnings = heightWarnings,
+                            mapStyleMode = mapStyleMode,
+                        ),
+                    )
                 },
                 modifier = Modifier
                     .fillMaxWidth()
@@ -198,7 +260,7 @@ fun SettingsSheet(
 
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "Testversion 0.2.0 · Firmeninterne Nutzung",
+                text = "Testversion 0.3.0 · Firmeninterne Nutzung",
                 style = MaterialTheme.typography.labelSmall,
                 color = AppPrimary,
             )
@@ -286,6 +348,12 @@ private fun SwitchRow(
 
 private fun parseNumber(text: String, fallback: Double): Double =
     text.replace(',', '.').trim().toDoubleOrNull() ?: fallback
+
+private fun mapStyleLabel(mode: MapStyleMode): String = when (mode) {
+    MapStyleMode.AUTO -> "Automatisch"
+    MapStyleMode.LIGHT -> "Hell"
+    MapStyleMode.DARK -> "Dunkel"
+}
 
 private fun formatNumber(value: Double): String {
     val formatted = String.format(Locale.GERMANY, "%.2f", value)

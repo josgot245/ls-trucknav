@@ -19,6 +19,10 @@ data class AppSettings(
     val carFallback: Boolean = true,
     val voiceEnabled: Boolean = true,
     val cameraWarnings: Boolean = true,
+    val trafficWarnings: Boolean = true,
+    val truckPois: Boolean = false,
+    val heightWarnings: Boolean = true,
+    val mapStyleMode: MapStyleMode = MapStyleMode.AUTO,
 )
 
 /** Persistente Einstellungen (LKW-Profil, Routing-Server, Sprache). */
@@ -38,6 +42,10 @@ class SettingsRepository(private val context: Context) {
         val CAR_FALLBACK = booleanPreferencesKey("car_fallback")
         val VOICE = booleanPreferencesKey("voice_enabled")
         val CAMERA_WARNINGS = booleanPreferencesKey("camera_warnings")
+        val TRAFFIC_WARNINGS = booleanPreferencesKey("traffic_warnings")
+        val TRUCK_POIS = booleanPreferencesKey("truck_pois")
+        val HEIGHT_WARNINGS = booleanPreferencesKey("height_warnings")
+        val MAP_STYLE_MODE = stringPreferencesKey("map_style_mode")
     }
 
     suspend fun load(): AppSettings {
@@ -59,6 +67,12 @@ class SettingsRepository(private val context: Context) {
             carFallback = p[Keys.CAR_FALLBACK] ?: true,
             voiceEnabled = p[Keys.VOICE] ?: true,
             cameraWarnings = p[Keys.CAMERA_WARNINGS] ?: true,
+            trafficWarnings = p[Keys.TRAFFIC_WARNINGS] ?: true,
+            truckPois = p[Keys.TRUCK_POIS] ?: false,
+            heightWarnings = p[Keys.HEIGHT_WARNINGS] ?: true,
+            mapStyleMode = p[Keys.MAP_STYLE_MODE]
+                ?.let { name -> MapStyleMode.entries.firstOrNull { it.name == name } }
+                ?: MapStyleMode.AUTO,
         )
     }
 
@@ -93,8 +107,26 @@ class SettingsRepository(private val context: Context) {
         context.settingsStore.edit { p -> p[Keys.CAMERA_WARNINGS] = enabled }
     }
 
+    suspend fun saveTrafficWarnings(enabled: Boolean) {
+        context.settingsStore.edit { p -> p[Keys.TRAFFIC_WARNINGS] = enabled }
+    }
+
+    suspend fun saveTruckPois(enabled: Boolean) {
+        context.settingsStore.edit { p -> p[Keys.TRUCK_POIS] = enabled }
+    }
+
+    suspend fun saveHeightWarnings(enabled: Boolean) {
+        context.settingsStore.edit { p -> p[Keys.HEIGHT_WARNINGS] = enabled }
+    }
+
+    suspend fun saveMapStyleMode(mode: MapStyleMode) {
+        context.settingsStore.edit { p -> p[Keys.MAP_STYLE_MODE] = mode.name }
+    }
+
     companion object {
         const val DEFAULT_ROUTING_URL = "https://valhalla1.openstreetmap.de/route"
-        const val DEFAULT_MAP_STYLE = "https://tiles.openfreemap.org/styles/dark"
+
+        /** Standard-Kartenstil (dunkel); siehe [MapStyles] fuer hell/dunkel. */
+        const val DEFAULT_MAP_STYLE = MapStyles.DARK
     }
 }

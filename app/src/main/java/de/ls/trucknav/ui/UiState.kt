@@ -1,11 +1,16 @@
 package de.ls.trucknav.ui
 
+import de.ls.trucknav.data.MapStyleMode
+import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.data.SettingsRepository
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.model.GeoPoint
+import de.ls.trucknav.model.HeightRestriction
 import de.ls.trucknav.model.Place
 import de.ls.trucknav.model.RouteResult
 import de.ls.trucknav.model.SpeedCamera
+import de.ls.trucknav.model.TrafficWarning
+import de.ls.trucknav.model.TruckPoi
 import de.ls.trucknav.nav.NavUpdate
 
 data class UiState(
@@ -14,6 +19,12 @@ data class UiState(
     val carFallback: Boolean = true,
     val voiceEnabled: Boolean = true,
     val cameraWarnings: Boolean = true,
+
+    /** Gewaehlter Kartenstil-Modus (automatisch nach Tageszeit, hell oder dunkel). */
+    val mapStyleMode: MapStyleMode = MapStyleMode.AUTO,
+
+    /** Aktuell wirksame Kartenstil-URL (aus Modus + Tageszeit abgeleitet). */
+    val mapStyleUrl: String = MapStyles.DARK,
 
     val hasPermission: Boolean = false,
     val location: GeoPoint? = null,
@@ -28,6 +39,22 @@ data class UiState(
     val cameras: List<SpeedCamera> = emptyList(),
     val cameraWarning: SpeedCamera? = null,
     val cameraWarningDistance: Double = 0.0,
+
+    /** Verkehrsmeldungen der Autobahn GmbH (Stau, Sperrung, Baustelle). */
+    val trafficEnabled: Boolean = true,
+    val trafficWarnings: List<TrafficWarning> = emptyList(),
+    val trafficWarning: TrafficWarning? = null,
+    val trafficWarningDistance: Double = 0.0,
+
+    /** LKW-Punkte (Parkplatz, Raststaette, Tankstelle) aus OpenStreetMap. */
+    val truckPoisEnabled: Boolean = false,
+    val truckPois: List<TruckPoi> = emptyList(),
+
+    /** Durchfahrtshoehen-Warnungen aus OpenStreetMap. */
+    val heightWarningsEnabled: Boolean = true,
+    val heightRestrictions: List<HeightRestriction> = emptyList(),
+    val heightWarning: HeightRestriction? = null,
+    val heightWarningDistance: Double = 0.0,
 
     val query: String = "",
     val searching: Boolean = false,
@@ -45,4 +72,16 @@ data class UiState(
 
     val showSearch: Boolean = false,
     val showSettings: Boolean = false,
+)
+
+/** Buendelt die App-weiten Schalter aus dem Einstellungsdialog. */
+data class AppOptions(
+    val routingUrl: String,
+    val carFallback: Boolean,
+    val voiceEnabled: Boolean,
+    val cameraWarnings: Boolean,
+    val trafficWarnings: Boolean,
+    val truckPois: Boolean,
+    val heightWarnings: Boolean,
+    val mapStyleMode: MapStyleMode,
 )

@@ -17,11 +17,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.model.GeoPoint
 import de.ls.trucknav.model.RouteResult
 import de.ls.trucknav.ui.UiState
 import de.ls.trucknav.util.distanceMeters
 import kotlinx.coroutines.isActive
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
@@ -41,6 +44,7 @@ fun TruckMapView(
     state: UiState,
     modifier: Modifier = Modifier,
     recenterSignal: Int = 0,
+    controls: MapControls = remember { MapControls() },
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -51,11 +55,30 @@ fun TruckMapView(
     }
     val mapHolder = remember { mutableStateOf<MapLibreMap?>(null) }
     val followEnabled = remember { mutableStateOf(true) }
+    // Zusaetzlicher Zoom waehrend der Navigation (Kamera-Folgemodus).
+    val zoomBias = remember { mutableStateOf(0.0) }
     var styleReady by remember { mutableStateOf(false) }
+    // Zaehlt jeden geladenen Stil hoch, damit die Ebenen danach neu befuellt werden.
+    var styleGeneration by remember { mutableStateOf(0) }
+    var appliedStyleUrl by remember { mutableStateOf<String?>(null) }
     var lastFittedRoute by remember { mutableStateOf<RouteResult?>(null) }
     var centeredOnce by remember { mutableStateOf(false) }
 
     val latestState = rememberUpdatedState(state)
+
+    // Laedt einen Kartenstil und installiert die eigenen Ebenen darauf.
+    fun applyMapStyle(map: MapLibreMap) {
+        val url = latestState.value.mapStyleUrl
+        appliedStyleUrl = url
+        map.setStyle(Style.Builder().fromUri(url)) { style ->
+            MapLayers.addUserArrow(style, context)
+            MapLayers.install(style)
+            // Im dunklen Design Strassen hervorheben, damit sie nachts sichtbar sind.
+            if (url == MapStyles.DARK) MapLayers.highlightDarkRoads(style)
+            styleReady = true
+            styleGeneration++
+        }
+    }
 
     AndroidView(
         factory = {
@@ -75,15 +98,43 @@ fun TruckMapView(
                             followEnabled.value = false
                         }
                     }
-                    map.setStyle(Style.Builder().fromUri(MapLayers.STYLE_URL)) { style ->
-                        MapLayers.install(style)
-                        styleReady = true
+                    // In der freien Ansicht zeigt das Kompass-Symbol, ob die
+                    // Karte nach Norden ausgerichtet ist.
+                    map.addOnCameraIdleListener {
+                        if (!latestState.value.navActive) {
+                            controls.northUp = abs(map.cameraPosition.bearing) < 1.0f
+                        }
                     }
+                    controls.zoomInAction = { zoomBy(map, zoomBias, followEnabled, latestState, +1.0) }
+                    controls.zoomOutAction = { zoomBy(map, zoomBias, followEnabled, latestState, -1.0) }
+                    controls.compassAction = {
+                        if (latestState.value.navActive) {
+                            // Zwischen Fahrtrichtung und Norden wechseln.
+                            controls.northUp = !controls.northUp
+                            followEnabled.value = true
+                        } else {
+                            controls.northUp = true
+                            val target = CameraPosition.Builder(map.cameraPosition)
+                                .bearing(0.0)
+                                .tilt(0.0)
+                                .build()
+                            map.animateCamera(CameraUpdateFactory.newCameraPosition(target), 500)
+                        }
+                    }
+                    applyMapStyle(map)
                 }
             }
         },
         modifier = modifier,
     )
+
+    // Tag/Nacht: Stil wechseln, sobald sich die wirksame URL aendert.
+    LaunchedEffect(state.mapStyleUrl, mapHolder.value, styleReady) {
+        if (!styleReady) return@LaunchedEffect
+        val map = mapHolder.value ?: return@LaunchedEffect
+        if (appliedStyleUrl == state.mapStyleUrl) return@LaunchedEffect
+        applyMapStyle(map)
+    }
 
     DisposableEffect(lifecycleOwner, mapView) {
         var started = false
@@ -142,14 +193,21 @@ fun TruckMapView(
 
     LaunchedEffect(
         styleReady,
+        styleGeneration,
         mapHolder.value,
         state.route,
         state.location,
+        state.bearing,
         state.nav?.snapped,
         state.nav?.offRoute,
         state.destination,
         state.cameras,
         state.cameraWarnings,
+        state.trafficWarnings,
+        state.truckPois,
+        state.truckPoisEnabled,
+        state.heightRestrictions,
+        state.heightWarningsEnabled,
     ) {
         if (!styleReady) return@LaunchedEffect
         val map = mapHolder.value ?: return@LaunchedEffect
@@ -201,13 +259,15 @@ fun TruckMapView(
                 }
 
                 val offRoute = nav?.offRoute == true
-                val targetZoom = if (offRoute) 16.2 else 17.0
+                val targetZoom = (if (offRoute) 16.2 else 17.0) + zoomBias.value
                 val targetTilt = if (offRoute) 30.0 else 45.0
+                // Kompass: entweder in Fahrtrichtung oder nach Norden.
+                val targetBearing = if (controls.northUp) 0.0 else normalizeBearing(st.bearing.toDouble())
 
                 if (camLat.isNaN() || lastFrameNanos == 0L) {
                     camLat = target.lat
                     camLon = target.lon
-                    camBearing = normalizeBearing(st.bearing.toDouble())
+                    camBearing = targetBearing
                     camZoom = targetZoom
                     camTilt = targetTilt
                 } else {
@@ -219,7 +279,7 @@ fun TruckMapView(
                     val alphaBearing = 1.0 - exp(-dt / BEARING_TAU_S)
                     camBearing = normalizeBearing(
                         camBearing +
-                            shortestAngleDelta(camBearing, st.bearing.toDouble()) * alphaBearing,
+                            shortestAngleDelta(camBearing, targetBearing) * alphaBearing,
                     )
                     camZoom += (targetZoom - camZoom) * alphaPos
                     camTilt += (targetTilt - camTilt) * alphaPos
@@ -285,6 +345,33 @@ fun TruckMapView(
         val snapshot = latestState.value
         val target = snapshot.nav?.snapped ?: snapshot.location ?: return@LaunchedEffect
         MapCamera.center(map, target, if (snapshot.navActive) 17.0 else 15.5)
+    }
+
+    // Beim Start der Navigation mit Fahrtrichtung und neutralem Zoom beginnen.
+    LaunchedEffect(state.navActive) {
+        if (state.navActive) {
+            controls.northUp = false
+            zoomBias.value = 0.0
+        }
+    }
+}
+
+/**
+ * Zoomt einen Schritt. Waehrend der Navigation (Kamera folgt) wird der Zoom
+ * als Versatz gemerkt, damit die weiche Kamera ihn beruecksichtigt; sonst
+ * wird direkt gezoomt.
+ */
+private fun zoomBy(
+    map: MapLibreMap,
+    zoomBias: androidx.compose.runtime.MutableState<Double>,
+    followEnabled: androidx.compose.runtime.MutableState<Boolean>,
+    latestState: androidx.compose.runtime.State<UiState>,
+    delta: Double,
+) {
+    if (latestState.value.navActive && followEnabled.value) {
+        zoomBias.value = (zoomBias.value + delta).coerceIn(-4.0, 4.0)
+    } else {
+        map.animateCamera(CameraUpdateFactory.zoomBy(delta), 300)
     }
 }
 

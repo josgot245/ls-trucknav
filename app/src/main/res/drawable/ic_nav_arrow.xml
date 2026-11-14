@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Eigene Position: Pfeil nach Norden (wird per icon-rotate im
+     Uhrzeigersinn auf die Fahrtrichtung gedreht). Stil wie der bisherige
+     Punkt: weiß gefuellt, roter Rand. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="48dp"
+    android:height="48dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M12,2 L4.5,20.29 L5.21,21 L12,18 L18.79,21 L19.5,20.29 Z"
+        android:fillColor="#FFFFFF"
+        android:strokeColor="#E02B36"
+        android:strokeWidth="1.6"
+        android:strokeLineJoin="round"
+        android:strokeLineCap="round" />
+</vector>

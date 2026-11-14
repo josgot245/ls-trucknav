@@ -5,22 +5,30 @@ import android.location.Location
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import de.ls.trucknav.data.MapStyleMode
+import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.data.SettingsRepository
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.location.LocationFilter
 import de.ls.trucknav.location.LocationSmoother
 import de.ls.trucknav.location.LocationTracker
 import de.ls.trucknav.model.GeoPoint
+import de.ls.trucknav.model.HeightRestriction
 import de.ls.trucknav.model.Place
 import de.ls.trucknav.model.RouteResult
 import de.ls.trucknav.model.SpeedCamera
+import de.ls.trucknav.model.TrafficKind
+import de.ls.trucknav.model.TrafficWarning
 import de.ls.trucknav.nav.NavigationEngine
+import de.ls.trucknav.net.AutobahnService
 import de.ls.trucknav.net.PhotonApi
 import de.ls.trucknav.net.RoutingException
 import de.ls.trucknav.net.SpeedCameraService
 import de.ls.trucknav.net.SpeedLimitService
+import de.ls.trucknav.net.TruckInfoService
 import de.ls.trucknav.net.ValhallaApi
 import de.ls.trucknav.tts.SpeechPlayer
+import de.ls.trucknav.util.DayNight
 import de.ls.trucknav.util.bearingDegrees
 import de.ls.trucknav.util.distanceMeters
 import de.ls.trucknav.util.distanceToPolylineMeters
@@ -43,6 +51,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val valhallaApi = ValhallaApi()
     private val speedLimitApi = SpeedLimitService()
     private val cameraApi = SpeedCameraService()
+    private val autobahnApi = AutobahnService()
+    private val truckInfoApi = TruckInfoService()
     private val tracker = LocationTracker(application)
     private val locationFilter = LocationFilter()
     private val smoother = LocationSmoother()
@@ -72,6 +82,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastCameraFetchAt = 0L
     private val announcedCameras = HashSet<Long>()
 
+    // Verkehrsmeldungen (Autobahn GmbH): zuletzt abgefragte Autobahn.
+    private var trafficJob: Job? = null
+    private var lastTrafficRoad: String? = null
+    private var lastTrafficFetchAt = 0L
+    private val announcedTraffic = HashSet<String>()
+
+    // LKW-Punkte und Durchfahrtshoehen (OpenStreetMap).
+    private var poiJob: Job? = null
+    private var lastPoiCenter: GeoPoint? = null
+    private var lastPoiFetchAt = 0L
+
+    private var heightJob: Job? = null
+    private var lastHeightCenter: GeoPoint? = null
+    private var lastHeightFetchAt = 0L
+    private val announcedHeights = HashSet<Long>()
+
     init {
         viewModelScope.launch {
             val settings = settingsRepo.load()
@@ -83,8 +109,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     carFallback = settings.carFallback,
                     voiceEnabled = settings.voiceEnabled,
                     cameraWarnings = settings.cameraWarnings,
+                    trafficEnabled = settings.trafficWarnings,
+                    truckPoisEnabled = settings.truckPois,
+                    heightWarningsEnabled = settings.heightWarnings,
+                    mapStyleMode = settings.mapStyleMode,
                 )
             }
+            updateMapStyle()
+        }
+        // Tag/Nacht-Wechsel auch im Stand (ohne GPS-Fix) nachziehen.
+        viewModelScope.launch {
+            while (true) {
+                delay(MAP_STYLE_REFRESH_MS)
+                updateMapStyle()
+            }
+        }
+    }
+
+    /** Waehlt den Kartenstil anhand von Modus und aktueller Tageszeit. */
+    private fun updateMapStyle() {
+        val snapshot = _state.value
+        val night = DayNight.isNight(snapshot.location)
+        val url = MapStyles.url(snapshot.mapStyleMode, night)
+        if (url != snapshot.mapStyleUrl) {
+            _state.update { it.copy(mapStyleUrl = url) }
         }
     }
 
@@ -177,6 +225,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             routePoints = _state.value.route?.points,
             routeActive = _state.value.navActive && _state.value.nav?.offRoute == false,
         )
+
+        // Verkehrsmeldungen (Autobahn), LKW-Punkte und Durchfahrtshoehen.
+        val routePoints = _state.value.route?.points
+        val routeActive = _state.value.navActive && _state.value.nav?.offRoute == false
+        maybeFetchTraffic(smoothed.point, _state.value.speedLimitRoad)
+        updateTrafficWarning(smoothed.point, smoothed.bearing, routePoints, routeActive)
+        maybeFetchTruckInfo(smoothed.point)
+        updateHeightWarning(smoothed.point, smoothed.bearing, routePoints, routeActive)
+        updateMapStyle()
 
         val updated = _state.value
         if (pendingRoute && updated.destination != null && updated.route == null && !updated.routing) {
@@ -324,6 +381,228 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update { it.copy(cameraWarning = null, cameraWarningDistance = 0.0) }
     }
 
+    // --------------------------------------------- Verkehrsmeldungen (Autobahn)
+
+    /** Laedt Verkehrsmeldungen, wenn das Fahrzeug auf einer Autobahn unterwegs ist. */
+    private fun maybeFetchTraffic(point: GeoPoint, roadName: String?) {
+        if (!_state.value.trafficEnabled) return
+        val road = AutobahnService.normalizeRoad(roadName)
+        if (road == null) {
+            // Nicht auf der Autobahn: alte Meldungen verwerfen.
+            lastTrafficRoad = null
+            if (_state.value.trafficWarnings.isNotEmpty() || _state.value.trafficWarning != null) {
+                _state.update {
+                    it.copy(
+                        trafficWarnings = emptyList(),
+                        trafficWarning = null,
+                        trafficWarningDistance = 0.0,
+                    )
+                }
+            }
+            return
+        }
+        if (trafficJob?.isActive == true) return
+
+        val now = SystemClock.elapsedRealtime()
+        val roadChanged = road != lastTrafficRoad
+        if (!roadChanged && now - lastTrafficFetchAt < TRAFFIC_MIN_INTERVAL_MS) return
+
+        lastTrafficFetchAt = now
+        lastTrafficRoad = road
+        trafficJob = viewModelScope.launch {
+            val warnings = autobahnApi.warnings(road)
+            if (warnings == null) {
+                // Fehlversuch: naechster Fix darf es erneut versuchen.
+                lastTrafficRoad = null
+                return@launch
+            }
+            _state.update { it.copy(trafficWarnings = warnings) }
+        }
+    }
+
+    /** Bestimmt die naechste relevante Verkehrsmeldung und warnt einmalig. */
+    private fun updateTrafficWarning(
+        point: GeoPoint,
+        bearing: Float,
+        routePoints: List<GeoPoint>?,
+        routeActive: Boolean,
+    ) {
+        val snapshot = _state.value
+        if (!snapshot.trafficEnabled || snapshot.trafficWarnings.isEmpty()) {
+            if (snapshot.trafficWarning != null) {
+                _state.update { it.copy(trafficWarning = null, trafficWarningDistance = 0.0) }
+            }
+            return
+        }
+
+        var nearest: TrafficWarning? = null
+        var nearestDistance = Double.MAX_VALUE
+
+        for (warning in snapshot.trafficWarnings) {
+            val distance = distanceMeters(point, warning.point)
+            if (distance > TRAFFIC_WARN_DISTANCE_M) continue
+            if (routeActive && routePoints != null &&
+                distanceToPolylineMeters(warning.point, routePoints) > TRAFFIC_ROUTE_TOLERANCE_M
+            ) {
+                continue
+            }
+            if (distance > 100.0 && bearingValid(bearing)) {
+                val toWarning = bearingDegrees(point, warning.point)
+                val delta = abs(((toWarning - bearing + 540.0) % 360.0) - 180.0)
+                if (delta > TRAFFIC_AHEAD_ANGLE_DEG) continue
+            }
+            if (distance < nearestDistance) {
+                nearest = warning
+                nearestDistance = distance
+            }
+        }
+
+        _state.update {
+            it.copy(
+                trafficWarning = nearest,
+                trafficWarningDistance = if (nearest != null) nearestDistance else 0.0,
+            )
+        }
+
+        if (nearest != null && nearestDistance <= TRAFFIC_ANNOUNCE_DISTANCE_M &&
+            announcedTraffic.add(nearest.id)
+        ) {
+            val text = when {
+                nearest.blocked -> "Achtung, Sperrung in ${roundedDistance(nearestDistance)} Metern."
+                nearest.jam -> "Achtung, Stau in ${roundedDistance(nearestDistance)} Metern."
+                nearest.kind == TrafficKind.ROADWORKS ->
+                    "Achtung, Baustelle in ${roundedDistance(nearestDistance)} Metern."
+                else -> "Achtung, Verkehrsmeldung in ${roundedDistance(nearestDistance)} Metern."
+            }
+            speech.speak(text)
+        }
+    }
+
+    // ------------------------------------- LKW-Punkte & Durchfahrtshoehen (OSM)
+
+    private fun maybeFetchTruckInfo(point: GeoPoint) {
+        maybeFetchPois(point)
+        maybeFetchHeights(point)
+    }
+
+    private fun maybeFetchPois(point: GeoPoint) {
+        if (!_state.value.truckPoisEnabled) {
+            if (_state.value.truckPois.isNotEmpty()) {
+                _state.update { it.copy(truckPois = emptyList()) }
+            }
+            return
+        }
+        if (poiJob?.isActive == true) return
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastPoiFetchAt < POI_MIN_INTERVAL_MS) return
+        val center = lastPoiCenter
+        if (center != null && distanceMeters(center, point) < POI_REFRESH_DISTANCE_M) return
+
+        lastPoiFetchAt = now
+        lastPoiCenter = point
+        poiJob = viewModelScope.launch {
+            val pois = truckInfoApi.pois(point)
+            if (pois == null) {
+                lastPoiCenter = null
+                return@launch
+            }
+            _state.update { it.copy(truckPois = pois) }
+        }
+    }
+
+    private fun maybeFetchHeights(point: GeoPoint) {
+        if (!_state.value.heightWarningsEnabled) return
+        if (heightJob?.isActive == true) return
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastHeightFetchAt < HEIGHT_MIN_INTERVAL_MS) return
+        val center = lastHeightCenter
+        if (center != null && distanceMeters(center, point) < HEIGHT_REFRESH_DISTANCE_M) return
+
+        lastHeightFetchAt = now
+        lastHeightCenter = point
+        heightJob = viewModelScope.launch {
+            val restrictions = truckInfoApi.heightRestrictions(point)
+            if (restrictions == null) {
+                lastHeightCenter = null
+                return@launch
+            }
+            _state.update { it.copy(heightRestrictions = restrictions) }
+        }
+    }
+
+    /** Warnt vor Bruecken/Unterfuehrungen, die niedriger als das Fahrzeug sind. */
+    private fun updateHeightWarning(
+        point: GeoPoint,
+        bearing: Float,
+        routePoints: List<GeoPoint>?,
+        routeActive: Boolean,
+    ) {
+        val snapshot = _state.value
+        if (!snapshot.heightWarningsEnabled) {
+            if (snapshot.heightWarning != null) {
+                _state.update { it.copy(heightWarning = null, heightWarningDistance = 0.0) }
+            }
+            return
+        }
+
+        val vehicleHeight = snapshot.profile.height
+        var nearest: HeightRestriction? = null
+        var nearestDistance = Double.MAX_VALUE
+
+        for (restriction in snapshot.heightRestrictions) {
+            // Passt das Fahrzeug durch, ist die Beschraenkung irrelevant.
+            if (restriction.maxHeightM >= vehicleHeight) continue
+            val distance = distanceMeters(point, restriction.point)
+            if (distance > HEIGHT_WARN_DISTANCE_M) continue
+            if (routeActive && routePoints != null &&
+                distanceToPolylineMeters(restriction.point, routePoints) > HEIGHT_ROUTE_TOLERANCE_M
+            ) {
+                continue
+            }
+            if (distance > 60.0 && bearingValid(bearing)) {
+                val toRestriction = bearingDegrees(point, restriction.point)
+                val delta = abs(((toRestriction - bearing + 540.0) % 360.0) - 180.0)
+                if (delta > HEIGHT_AHEAD_ANGLE_DEG) continue
+            }
+            if (distance < nearestDistance) {
+                nearest = restriction
+                nearestDistance = distance
+            }
+        }
+
+        _state.update {
+            it.copy(
+                heightWarning = nearest,
+                heightWarningDistance = if (nearest != null) nearestDistance else 0.0,
+            )
+        }
+
+        if (nearest != null && nearestDistance <= HEIGHT_ANNOUNCE_DISTANCE_M &&
+            announcedHeights.add(nearest.id)
+        ) {
+            val height = String.format(java.util.Locale.GERMANY, "%.2f", nearest.maxHeightM)
+            speech.speak(
+                "Achtung, Durchfahrtshöhe $height Meter in ${roundedDistance(nearestDistance)} Metern.",
+            )
+        }
+    }
+
+    /** Setzt Verkehrs-, POI- und Hoehenwarnungen zurueck (neue Route). */
+    private fun resetTruckInfo() {
+        announcedTraffic.clear()
+        announcedHeights.clear()
+        _state.update {
+            it.copy(
+                trafficWarning = null,
+                trafficWarningDistance = 0.0,
+                heightWarning = null,
+                heightWarningDistance = 0.0,
+            )
+        }
+    }
+
     // ------------------------------------------------------------------ Suche
 
     fun openSearch() {
@@ -367,6 +646,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         pendingRoute = false
         resetRoadInfo()
         resetCameraWarnings()
+        resetTruckInfo()
         _state.update {
             it.copy(
                 destination = place,
@@ -494,6 +774,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rerouteCapNotified = false
         resetRoadInfo()
         resetCameraWarnings()
+        resetTruckInfo()
         _state.update {
             it.copy(
                 route = route,
@@ -520,6 +801,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rerouteCapNotified = false
         resetRoadInfo()
         resetCameraWarnings()
+        resetTruckInfo()
         _state.update {
             it.copy(
                 destination = null,
@@ -578,6 +860,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rerouteCapNotified = false
         resetRoadInfo()
         resetCameraWarnings()
+        resetTruckInfo()
         val initial = engine.initialUpdate()
         _state.update {
             it.copy(navActive = true, arrived = false, nav = initial, showSearch = false)
@@ -592,6 +875,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         rerouteCapNotified = false
         resetRoadInfo()
         resetCameraWarnings()
+        resetTruckInfo()
         _state.update {
             it.copy(navActive = false, nav = null, arrived = false)
         }
@@ -624,31 +908,89 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveAppSettings(routingUrl: String, carFallback: Boolean, cameraWarnings: Boolean) {
+    fun saveAppSettings(
+        routingUrl: String,
+        carFallback: Boolean,
+        cameraWarnings: Boolean,
+        trafficWarnings: Boolean,
+        truckPois: Boolean,
+        heightWarnings: Boolean,
+        mapStyleMode: MapStyleMode,
+    ) {
         val cleanUrl = routingUrl.trim().ifBlank { SettingsRepository.DEFAULT_ROUTING_URL }
-        val wasEnabled = _state.value.cameraWarnings
+        val wasCamera = _state.value.cameraWarnings
+        val wasTraffic = _state.value.trafficEnabled
+        val wasPois = _state.value.truckPoisEnabled
+        val wasHeights = _state.value.heightWarningsEnabled
         _state.update {
             it.copy(
                 routingUrl = cleanUrl,
                 carFallback = carFallback,
                 cameraWarnings = cameraWarnings,
+                trafficEnabled = trafficWarnings,
+                truckPoisEnabled = truckPois,
+                heightWarningsEnabled = heightWarnings,
+                mapStyleMode = mapStyleMode,
             )
         }
+        updateMapStyle()
         viewModelScope.launch {
             settingsRepo.saveRoutingUrl(cleanUrl)
             settingsRepo.saveCarFallback(carFallback)
             settingsRepo.saveCameraWarnings(cameraWarnings)
+            settingsRepo.saveTrafficWarnings(trafficWarnings)
+            settingsRepo.saveTruckPois(truckPois)
+            settingsRepo.saveHeightWarnings(heightWarnings)
+            settingsRepo.saveMapStyleMode(mapStyleMode)
         }
         when {
             !cameraWarnings -> _state.update {
                 it.copy(cameras = emptyList(), cameraWarning = null, cameraWarningDistance = 0.0)
             }
 
-            !wasEnabled -> {
+            !wasCamera -> {
                 // Gerade aktiviert: Bestand neu laden.
                 lastCameraCenter = null
                 lastCameraFetchAt = 0L
                 _state.update { it.copy(cameraWarning = null, cameraWarningDistance = 0.0) }
+            }
+        }
+        when {
+            !trafficWarnings -> {
+                lastTrafficRoad = null
+                _state.update {
+                    it.copy(
+                        trafficWarnings = emptyList(),
+                        trafficWarning = null,
+                        trafficWarningDistance = 0.0,
+                    )
+                }
+            }
+
+            !wasTraffic -> {
+                lastTrafficRoad = null
+                lastTrafficFetchAt = 0L
+            }
+        }
+        when {
+            !truckPois -> _state.update { it.copy(truckPois = emptyList()) }
+            !wasPois -> {
+                lastPoiCenter = null
+                lastPoiFetchAt = 0L
+            }
+        }
+        when {
+            !heightWarnings -> _state.update {
+                it.copy(
+                    heightRestrictions = emptyList(),
+                    heightWarning = null,
+                    heightWarningDistance = 0.0,
+                )
+            }
+
+            !wasHeights -> {
+                lastHeightCenter = null
+                lastHeightFetchAt = 0L
             }
         }
     }
@@ -675,6 +1017,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private companion object {
+        /** Tag/Nacht-Kartenstil regelmaessig neu pruefen (auch im Stand). */
+        const val MAP_STYLE_REFRESH_MS = 5 * 60_000L
+
         /** Mindestabstand zwischen zwei automatischen Neuberechnungen. */
         const val REROUTE_COOLDOWN_MS = 8_000L
 
@@ -716,5 +1061,44 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         /** Oeffnungswinkel des Warnkegels in Fahrtrichtung. */
         const val CAMERA_AHEAD_ANGLE_DEG = 75.0
+
+        /** Mindestpause zwischen zwei Verkehrsmeldungs-Abfragen. */
+        const val TRAFFIC_MIN_INTERVAL_MS = 120_000L
+
+        /** Warnabstand vor einer Verkehrsmeldung. */
+        const val TRAFFIC_WARN_DISTANCE_M = 5_000.0
+
+        /** Ab diesem Abstand wird die Meldung einmal angesagt. */
+        const val TRAFFIC_ANNOUNCE_DISTANCE_M = 1_000.0
+
+        /** Maximaler Abstand der Meldung zur Route. */
+        const val TRAFFIC_ROUTE_TOLERANCE_M = 60.0
+
+        /** Oeffnungswinkel des Warnkegels in Fahrtrichtung. */
+        const val TRAFFIC_AHEAD_ANGLE_DEG = 75.0
+
+        /** Mindestpause zwischen zwei LKW-Punkt-Abfragen. */
+        const val POI_MIN_INTERVAL_MS = 180_000L
+
+        /** LKW-Punkte erst nach dieser Strecke neu laden. */
+        const val POI_REFRESH_DISTANCE_M = 4_000.0
+
+        /** Mindestpause zwischen zwei Hoehen-Abfragen. */
+        const val HEIGHT_MIN_INTERVAL_MS = 180_000L
+
+        /** Hoehen erst nach dieser Strecke neu laden. */
+        const val HEIGHT_REFRESH_DISTANCE_M = 2_000.0
+
+        /** Warnabstand vor einer Durchfahrtshoehe. */
+        const val HEIGHT_WARN_DISTANCE_M = 800.0
+
+        /** Ab diesem Abstand wird die Hoehe einmal angesagt. */
+        const val HEIGHT_ANNOUNCE_DISTANCE_M = 500.0
+
+        /** Maximaler Abstand der Hoehe zur Route. */
+        const val HEIGHT_ROUTE_TOLERANCE_M = 40.0
+
+        /** Oeffnungswinkel des Warnkegels in Fahrtrichtung. */
+        const val HEIGHT_AHEAD_ANGLE_DEG = 70.0
     }
 }

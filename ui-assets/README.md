@@ -29,6 +29,7 @@ insbesondere die StVO-Schilder (siehe `ui/components/StvoSigns.kt`).
 |---|---|---|
 | Tempolimit | `SpeedLimitSign` | StVO-Zeichen 274 (weißer Kreis, roter Ring, schwarze Zahl) |
 | Gefahr/Blitzer | `WarningTriangle` | StVO-Zeichen 101 (Warndreieck) als allgemeine Warnung |
+| Eigene Position | `ic_nav_arrow.xml` | Richtungspfeil (Abschnitt C „Position"), dreht mit der Fahrtrichtung |
 
 Die Blitzerwarnung nutzt bewusst das allgemeine Warndreieck, da Blitzer
 selbst keine StVO-Schilder sind.

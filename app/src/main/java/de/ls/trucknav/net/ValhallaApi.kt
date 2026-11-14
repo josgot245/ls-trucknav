@@ -71,6 +71,8 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
                 put("language", "de-DE")
                 put("units", "kilometers")
             }
+            // Spurführung und Beschilderung an Verzweigungen anfordern.
+            put("turn_lanes", true)
         }
 
         val request = Request.Builder()
@@ -128,6 +130,8 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
                         startDistance = startDistance,
                         length = (m.doubleOrNull("length") ?: 0.0) * 1000.0,
                         time = m.doubleOrNull("time") ?: 0.0,
+                        lanes = parseManeuverLanes(m),
+                        sign = parseManeuverSign(m),
                     )
                 )
             }

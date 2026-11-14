@@ -28,7 +28,7 @@ if (-not (Test-Path $apk)) {
     throw "APK nicht gefunden: $apk"
 }
 
-$target = Join-Path $project 'LS-TruckNav-0.2.0.apk'
+$target = Join-Path $project 'LS-TruckNav-0.3.0.apk'
 Copy-Item $apk $target -Force
 
 Write-Host ""
