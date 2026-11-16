@@ -12,6 +12,7 @@ import de.ls.trucknav.model.SpeedCamera
 import de.ls.trucknav.model.TrafficWarning
 import de.ls.trucknav.model.TruckPoi
 import de.ls.trucknav.nav.NavUpdate
+import de.ls.trucknav.net.UpdateInfo
 
 data class UiState(
     val profile: TruckProfile = TruckProfile.DEFAULT,
@@ -72,6 +73,30 @@ data class UiState(
 
     val showSearch: Boolean = false,
     val showSettings: Boolean = false,
+
+    /** Installierte App-Version (aus BuildConfig). */
+    val currentVersion: String = "",
+
+    /** Laeuft gerade eine Update-Pruefung? */
+    val updateChecking: Boolean = false,
+
+    /** Verfuegbare neuere Version (null = keine). */
+    val updateInfo: UpdateInfo? = null,
+
+    /** Wird gerade ein Update heruntergeladen? */
+    val updateDownloading: Boolean = false,
+
+    /** Downloadfortschritt 0..1 (null = unbekannt). */
+    val updateProgress: Float? = null,
+
+    /** Fehlermeldung der Update-Pruefung/-Installation. */
+    val updateError: String? = null,
+
+    /** Neutrale Rueckmeldung der Update-Pruefung (z. B. "App ist aktuell"). */
+    val updateMessage: String? = null,
+
+    /** Update-Dialog anzeigen. */
+    val showUpdateDialog: Boolean = false,
 )
 
 /** Buendelt die App-weiten Schalter aus dem Einstellungsdialog. */

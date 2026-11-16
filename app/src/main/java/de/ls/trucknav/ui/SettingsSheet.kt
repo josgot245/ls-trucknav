@@ -8,16 +8,19 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -34,6 +37,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.TruckProfile
+import de.ls.trucknav.ui.theme.AppDanger
 import de.ls.trucknav.ui.theme.AppPrimary
 import de.ls.trucknav.ui.theme.AppSurface
 import de.ls.trucknav.ui.theme.AppText
@@ -45,6 +49,8 @@ import java.util.Locale
 fun SettingsSheet(
     state: UiState,
     onSave: (TruckProfile, AppOptions) -> Unit,
+    onCheckUpdates: () -> Unit,
+    onInstallUpdate: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -258,9 +264,72 @@ fun SettingsSheet(
                 Text("Speichern", style = MaterialTheme.typography.titleMedium)
             }
 
+            Spacer(Modifier.height(16.dp))
+            HorizontalDivider(color = AppTextMuted.copy(alpha = 0.15f))
+            Spacer(Modifier.height(16.dp))
+
+            SectionTitle("Updates")
+            Text(
+                text = "Installierte Version: ${state.currentVersion.ifBlank { "?" }}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = AppText,
+            )
+            Spacer(Modifier.height(10.dp))
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                OutlinedButton(
+                    onClick = onCheckUpdates,
+                    enabled = !state.updateChecking,
+                ) {
+                    if (state.updateChecking) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(16.dp),
+                            strokeWidth = 2.dp,
+                            color = AppPrimary,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Text("Prüfe …")
+                    } else {
+                        Text("Nach Updates suchen")
+                    }
+                }
+                if (state.updateInfo != null) {
+                    Button(
+                        onClick = onInstallUpdate,
+                        enabled = !state.updateDownloading,
+                    ) {
+                        Text(
+                            if (state.updateDownloading) {
+                                "Lädt …"
+                            } else {
+                                "Version ${state.updateInfo.version}"
+                            },
+                        )
+                    }
+                }
+            }
+            state.updateError?.let { error ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = error,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AppDanger,
+                )
+            }
+            state.updateMessage?.let { message ->
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AppTextMuted,
+                )
+            }
+
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "Testversion 0.3.0 · Firmeninterne Nutzung",
+                text = "Testversion 0.4.0 · Firmeninterne Nutzung",
                 style = MaterialTheme.typography.labelSmall,
                 color = AppPrimary,
             )

@@ -1,10 +1,13 @@
 package de.ls.trucknav.ui
 
 import android.app.Application
+import android.content.Intent
 import android.location.Location
+import android.net.Uri
 import android.os.SystemClock
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import de.ls.trucknav.BuildConfig
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.data.SettingsRepository
@@ -26,9 +29,12 @@ import de.ls.trucknav.net.RoutingException
 import de.ls.trucknav.net.SpeedCameraService
 import de.ls.trucknav.net.SpeedLimitService
 import de.ls.trucknav.net.TruckInfoService
+import de.ls.trucknav.net.UpdateService
 import de.ls.trucknav.net.ValhallaApi
 import de.ls.trucknav.tts.SpeechPlayer
+import de.ls.trucknav.util.ApkInstaller
 import de.ls.trucknav.util.DayNight
+import de.ls.trucknav.util.Version
 import de.ls.trucknav.util.bearingDegrees
 import de.ls.trucknav.util.distanceMeters
 import de.ls.trucknav.util.distanceToPolylineMeters
@@ -53,6 +59,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val cameraApi = SpeedCameraService()
     private val autobahnApi = AutobahnService()
     private val truckInfoApi = TruckInfoService()
+    private val updateApi = UpdateService()
     private val tracker = LocationTracker(application)
     private val locationFilter = LocationFilter()
     private val smoother = LocationSmoother()
@@ -99,6 +106,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val announcedHeights = HashSet<Long>()
 
     init {
+        _state.update { it.copy(currentVersion = BuildConfig.VERSION_NAME) }
         viewModelScope.launch {
             val settings = settingsRepo.load()
             speech.setEnabled(settings.voiceEnabled)
@@ -124,6 +132,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 updateMapStyle()
             }
         }
+        // Beim Start einmal still nach Updates suchen.
+        checkForUpdates(manual = false)
     }
 
     /** Waehlt den Kartenstil anhand von Modus und aktueller Tageszeit. */
@@ -992,6 +1002,119 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastHeightCenter = null
                 lastHeightFetchAt = 0L
             }
+        }
+    }
+
+    // ------------------------------------------------------------------ Update
+
+    /**
+     * Prueft GitHub auf eine neuere Version. [manual] steuert, ob auch bei
+     * "kein Update"/Fehler eine Rueckmeldung erfolgt.
+     */
+    fun checkForUpdates(manual: Boolean = false) {
+        if (_state.value.updateChecking) return
+        _state.update { it.copy(updateChecking = true, updateError = null, updateMessage = null) }
+        viewModelScope.launch {
+            val info = updateApi.latest()
+            if (info == null) {
+                _state.update {
+                    it.copy(
+                        updateChecking = false,
+                        updateError = if (manual) {
+                            "Update-Prüfung fehlgeschlagen. Internetverbindung prüfen."
+                        } else {
+                            null
+                        },
+                    )
+                }
+                return@launch
+            }
+            val current = _state.value.currentVersion
+            if (Version.isNewer(info.version, current)) {
+                _state.update {
+                    it.copy(
+                        updateChecking = false,
+                        updateInfo = info,
+                        updateError = null,
+                        updateMessage = null,
+                        // Waehrend der Navigation nicht ungefragt einblenden.
+                        showUpdateDialog = manual || !it.navActive,
+                    )
+                }
+            } else {
+                _state.update {
+                    it.copy(
+                        updateChecking = false,
+                        updateInfo = null,
+                        updateMessage = if (manual) "Die App ist aktuell (Version $current)." else null,
+                    )
+                }
+            }
+        }
+    }
+
+    fun dismissUpdateDialog() {
+        _state.update { it.copy(showUpdateDialog = false) }
+    }
+
+    /** Laedt die neue APK herunter und startet die Installation. */
+    fun installUpdate() {
+        if (_state.value.updateDownloading) return
+        val info = _state.value.updateInfo ?: return
+        val app = getApplication<Application>()
+
+        // Fehlt die Berechtigung "Unbekannte Apps", zuerst dorthin fuehren.
+        if (!ApkInstaller.canInstall(app)) {
+            ApkInstaller.requestInstallPermission(app)
+            _state.update {
+                it.copy(
+                    updateError = null,
+                    updateMessage = "\"Unbekannte Apps installieren\" für LS TruckNav erlauben " +
+                        "und danach erneut auf Aktualisieren tippen.",
+                )
+            }
+            return
+        }
+
+        val url = info.downloadUrl
+        if (url == null) {
+            // Kein APK-Asset vorhanden: Release-Seite im Browser oeffnen.
+            openUpdatePage(info.pageUrl)
+            return
+        }
+        _state.update {
+            it.copy(
+                updateDownloading = true,
+                updateProgress = 0f,
+                updateError = null,
+                updateMessage = null,
+            )
+        }
+        viewModelScope.launch {
+            val file = updateApi.download(url, app) { progress ->
+                _state.update { it.copy(updateProgress = progress) }
+            }
+            if (file == null) {
+                _state.update {
+                    it.copy(
+                        updateDownloading = false,
+                        updateProgress = null,
+                        updateError = "Download fehlgeschlagen. Bitte erneut versuchen.",
+                    )
+                }
+                return@launch
+            }
+            _state.update { it.copy(updateDownloading = false, updateProgress = null) }
+            ApkInstaller.install(app, file)
+        }
+    }
+
+    private fun openUpdatePage(url: String) {
+        if (url.isBlank()) return
+        runCatching {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            getApplication<Application>().startActivity(intent)
         }
     }
 

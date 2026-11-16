@@ -3,7 +3,7 @@
 Firmeninterne LKW-Navigations-App für Android. Karte, Adresssuche, LKW-Routing
 mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
-**Version:** 0.3.0
+**Version:** 0.4.0
 
 ---
 
@@ -41,13 +41,17 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   sind die Straßen hervorgehoben
 - **Bedienelemente** in der Firmenfarbe Rot (Zoom, Kompass, Zentrieren, Sprache)
 - **PKW-Fallback**, wenn keine LKW-Route gefunden wird (abschaltbar)
+- **In-App-Update**: Die App prüft beim Start (und auf Wunsch manuell in den
+  Einstellungen) die GitHub-Releases des Projekts. Ist eine neuere Version
+  verfügbar, erscheint ein Dialog mit den Versionshinweisen; die APK wird
+  heruntergeladen und der System-Installer gestartet
 - Einstellungen dauerhaft gespeichert (DataStore)
 
 ---
 
 ## Installation auf dem Handy
 
-1. `LS-TruckNav-0.3.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
+1. `LS-TruckNav-0.4.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
 2. Datei antippen → „Installieren“. Falls gefragt: „Unbekannte Quellen“ für den
    Dateimanager erlauben.
 3. Beim ersten Start **Standortberechtigung** erteilen.
@@ -55,7 +59,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 Alternativ per USB-Debugging:
 
 ```powershell
-adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.3.0.apk"
+adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.4.0.apk"
 ```
 
 Voraussetzung: Android 10 oder neuer.
@@ -75,6 +79,23 @@ Voraussetzung: Android 10 oder neuer.
 | Navigation beenden | „Navigation beenden“ |
 
 Während der Navigation bleibt der Bildschirm an.
+
+### App aktualisieren
+
+- Beim Start prüft die App still, ob auf GitHub eine neuere Version vorliegt.
+  Ist das der Fall, erscheint ein Dialog mit Versionsnummer und Versionshinweisen.
+- Über **LKW-Profil & Einstellungen → Updates → „Nach Updates suchen“** lässt
+  sich die Prüfung jederzeit manuell anstoßen. Das Ergebnis („Die App ist
+  aktuell …“) wird direkt im Einstellungsbereich angezeigt.
+- „Jetzt aktualisieren“ lädt die neue APK herunter und öffnet den
+  System-Installer. Beim ersten Mal muss für LS TruckNav die Berechtigung
+  **„Unbekannte Apps installieren“** erlaubt werden; die App führt dorthin.
+- Updates kommen aus den GitHub-Releases von
+  [`josgot245/ls-trucknav`](https://github.com/josgot245/ls-trucknav/releases)
+  (öffentlich, kein Zugangsschlüssel nötig).
+- Hinweis: Google **Play Protect** kann die Installation einer nicht im Play
+  Store verfügbaren App melden. Über „Scan app“ → „Install“ lässt sich die
+  Installation fortsetzen.
 
 ### Tempolimit und Blitzer
 
@@ -148,6 +169,7 @@ Während der Navigation bleibt der Bildschirm an.
 | Standort | Android LocationManager, gefiltert und geglättet (kein Google Play Services nötig) |
 | Sprache | Android TextToSpeech, deutsch |
 | Einstellungen | DataStore Preferences |
+| Updates | GitHub Releases API, Download + System-Installer (FileProvider) |
 
 ### LKW-Parameter (Valhalla)
 
@@ -187,7 +209,7 @@ Oder einfach:
 ```
 
 Das Skript baut die Release-Variante (mit Debug-Key signiert, intern
-installierbar) und kopiert sie als `LS-TruckNav-0.3.0.apk` ins Projektverzeichnis.
+installierbar) und kopiert sie als `LS-TruckNav-0.4.0.apk` ins Projektverzeichnis.
 
 ### App-Icon
 
@@ -220,12 +242,12 @@ app/src/main/java/de/ls/trucknav/
 ├── location/        LocationTracker, LocationFilter, LocationSmoother
 ├── model/           GeoPoint, Place, Maneuver, RouteResult, SpeedCamera
 ├── nav/             RouteGeometry (Snapping), NavigationEngine
-├── net/             ValhallaApi, PhotonApi, SpeedLimitService, SpeedCameraService, Http
+├── net/             ValhallaApi, PhotonApi, SpeedLimitService, SpeedCameraService, UpdateService, Http
 ├── tts/             SpeechPlayer
-├── ui/              MapScreen, Such- und Einstellungs-Sheets, Theme
+├── ui/              MapScreen, Such- und Einstellungs-Sheets, Update-Dialog, Theme
 │   ├── components/  StVO-Schilder (Tempolimit 274, Warndreieck 101)
 │   └── map/         MapLibre-Einbindung, Ebenen, Kamera
-└── util/            Geo-Mathematik, Polyline6, Formatierung
+└── util/            Geo-Mathematik, Polyline6, Formatierung, Versionsvergleich, APK-Installation
 ```
 
 `ui-assets/` enthält das gelieferte Design-Blatt als Referenz (siehe

@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -21,6 +22,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -161,11 +163,20 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
         viewModel.clearNotice()
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(AppBackground)
     ) {
+        // Auf grossen Bildschirmen (Tablet/Querformat) werden die schwebenden
+        // Karten in der Breite begrenzt und zentriert, statt ueber die volle
+        // Breite gestreckt zu werden. Auf dem Handy bleibt alles unveraendert.
+        val panelWidth = if (maxWidth >= LARGE_SCREEN_MIN_WIDTH) {
+            Modifier.widthIn(max = PANEL_MAX_WIDTH)
+        } else {
+            Modifier
+        }
+
         TruckMapView(
             state = state,
             modifier = Modifier.fillMaxSize(),
@@ -189,12 +200,15 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 onSearch = viewModel::openSearch,
                 onSettings = viewModel::openSettings,
                 onClear = viewModel::clearDestination,
-                modifier = Modifier.align(Alignment.TopCenter),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .then(panelWidth),
             )
         } else {
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .then(panelWidth)
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
@@ -219,6 +233,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
         Column(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
+                .then(panelWidth)
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(12.dp)
@@ -343,7 +358,17 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     if (options.voiceEnabled != state.voiceEnabled) viewModel.toggleVoice()
                     viewModel.closeSettings()
                 },
+                onCheckUpdates = { viewModel.checkForUpdates(manual = true) },
+                onInstallUpdate = viewModel::installUpdate,
                 onDismiss = viewModel::closeSettings,
+            )
+        }
+
+        if (state.showUpdateDialog) {
+            UpdateDialog(
+                state = state,
+                onInstall = viewModel::installUpdate,
+                onDismiss = viewModel::dismissUpdateDialog,
             )
         }
     }
@@ -1273,7 +1298,9 @@ private fun ArrivalOverlay(destinationName: String?, onStop: () -> Unit) {
             shape = RoundedCornerShape(28.dp),
             color = AppSurface,
             shadowElevation = 16.dp,
-            modifier = Modifier.padding(28.dp),
+            modifier = Modifier
+                .padding(28.dp)
+                .widthIn(max = 420.dp),
         ) {
             Column(
                 modifier = Modifier.padding(28.dp),
@@ -1315,6 +1342,12 @@ private fun ArrivalOverlay(destinationName: String?, onStop: () -> Unit) {
         }
     }
 }
+
+/** Ab dieser Breite gelten schwebende Karten als Grossbild (Tablet/Querformat). */
+private val LARGE_SCREEN_MIN_WIDTH = 600.dp
+
+/** Maximale Breite der schwebenden Karten auf grossen Bildschirmen. */
+private val PANEL_MAX_WIDTH = 460.dp
 
 /** Ab dieser Entfernung zum Manoever wird die Spurführung eingeblendet. */
 private const val LANE_GUIDE_DISTANCE_M = 800.0
