@@ -3,19 +3,22 @@
 Firmeninterne LKW-Navigations-App für Android. Karte, Adresssuche, LKW-Routing
 mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
-**Version:** 0.4.0
+**Version:** 0.5.0
 
 ---
 
 ## Was die App kann
 
 - **Karte** mit OpenStreetMap-Daten (MapLibre + OpenFreeMap), dunkles Design
-- **Adresssuche** (Photon) mit Treffern in der Nähe
+- **Adresssuche** (Photon) mit Treffern in der Nähe; **Favoriten** (Stern am
+  Treffer) und der **Verlauf** der zuletzt gestarteten Ziele werden direkt
+  angeboten
 - **LKW-Routing** über Valhalla mit realistischen Fahrzeugmaßen:
   Höhe, Breite, Länge, Gesamtgewicht, Achslast, Achszahl, Gefahrgut,
   Maut vermeiden, Autobahn vermeiden
 - **Navigation** mit:
-  - Kartenverfolgung in Fahrtrichtung
+  - Kartenverfolgung in Fahrtrichtung – auch ohne laufende Navigation; der
+    Kompass wechselt zwischen Fahrtrichtung und Norden
   - Abbiegehinweisen und Manöver-Icons
   - Reststrecke, Restfahrzeit, Ankunftszeit, aktuelle Geschwindigkeit
   - deutschen Sprachansagen (TTS)
@@ -26,6 +29,9 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   Navigation; bei Überschreitung wird die Geschwindigkeit rot
 - **Blitzer-Warnungen** (abschaltbar): Hinweisbanner + Ansage vor stationären
   Blitzern aus OpenStreetMap, Marker auf der Karte
+- **Symbole auf der Karte** statt einfarbiger Punkte: Ziel, Blitzer,
+  Verkehrsmeldungen, LKW-POIs und Durchfahrtshöhen haben eigene Piktogramme
+  (zur Laufzeit gezeichnet, keine Bilddateien)
 - **Live-Verkehr** von der Autobahn GmbH (kostenlos, ohne Key): Stau,
   stockender Verkehr, Sperrungen und Baustellen auf Autobahnen – als
   Hinweisbanner und Markierung auf der Karte
@@ -35,7 +41,9 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   lichter Höhe aus OpenStreetMap; Warnung, wenn die eingestellte Fahrzeughöhe
   nicht passt
 - **Spurführung**: an Verzweigungen wird die zu nehmende Spur angezeigt, dazu
-  eine aus OpenStreetMap generierte Beschilderung (Ausfahrtsnummer und Ziele)
+  eine aus OpenStreetMap generierte Beschilderung (Ausfahrtsnummer,
+  Straßennummern und Ziele). Autobahnschilder sind blau/weiß, Bundes-, Land-
+  und Kreisstraßen gelb/schwarz (StVO)
 - **Tag/Nacht-Karte**: automatischer Wechsel nach Sonnenauf-/untergang am
   Standort, manuell übersteuerbar (Automatisch/Hell/Dunkel); im dunklen Design
   sind die Straßen hervorgehoben
@@ -51,7 +59,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
 ## Installation auf dem Handy
 
-1. `LS-TruckNav-0.4.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
+1. `LS-TruckNav-0.5.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
 2. Datei antippen → „Installieren“. Falls gefragt: „Unbekannte Quellen“ für den
    Dateimanager erlauben.
 3. Beim ersten Start **Standortberechtigung** erteilen.
@@ -59,7 +67,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 Alternativ per USB-Debugging:
 
 ```powershell
-adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.4.0.apk"
+adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.5.0.apk"
 ```
 
 Voraussetzung: Android 10 oder neuer.
@@ -209,7 +217,7 @@ Oder einfach:
 ```
 
 Das Skript baut die Release-Variante (mit Debug-Key signiert, intern
-installierbar) und kopiert sie als `LS-TruckNav-0.4.0.apk` ins Projektverzeichnis.
+installierbar) und kopiert sie als `LS-TruckNav-0.5.0.apk` ins Projektverzeichnis.
 
 ### App-Icon
 

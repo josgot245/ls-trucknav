@@ -18,8 +18,12 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -29,10 +33,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -53,10 +60,15 @@ fun SearchSheet(
     state: UiState,
     onQueryChange: (String) -> Unit,
     onSelect: (Place) -> Unit,
+    onToggleFavorite: (Place) -> Unit,
+    onClearHistory: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Vor der eigentlichen Suche zeigen wir Favoriten und Verlauf an.
+    val showSuggestions = state.query.trim().length < 3
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -105,15 +117,16 @@ fun SearchSheet(
                 Spacer(Modifier.height(4.dp))
             }
 
-            if (state.results.isEmpty()) {
+            if (showSuggestions) {
+                SuggestionList(
+                    state = state,
+                    onSelect = onSelect,
+                    onToggleFavorite = onToggleFavorite,
+                    onClearHistory = onClearHistory,
+                )
+            } else if (state.results.isEmpty()) {
                 Text(
-                    text = if (state.query.trim().length < 3) {
-                        "Mindestens 3 Zeichen eingeben."
-                    } else if (!state.searching) {
-                        "Keine Treffer gefunden."
-                    } else {
-                        ""
-                    },
+                    text = if (!state.searching) "Keine Treffer gefunden." else "",
                     style = MaterialTheme.typography.bodySmall,
                     color = AppTextMuted,
                     modifier = Modifier.padding(vertical = 12.dp),
@@ -124,10 +137,14 @@ fun SearchSheet(
                         .fillMaxWidth()
                         .heightIn(max = 420.dp)
                 ) {
-                    items(state.results, key = { "${it.name}|${it.point.lat}|${it.point.lon}" }) { place ->
-                        SearchResultRow(
+                    items(state.results, key = { "res-${placeKey(it)}" }) { place ->
+                        PlaceRow(
                             place = place,
                             from = state.location,
+                            leadingIcon = Icons.Filled.LocationOn,
+                            leadingTint = AppTextMuted,
+                            favorite = state.favorites.any { it == place },
+                            onToggleFavorite = onToggleFavorite,
                             onClick = { onSelect(place) },
                         )
                         HorizontalDivider(color = AppTextMuted.copy(alpha = 0.12f))
@@ -154,20 +171,108 @@ fun SearchSheet(
     }
 }
 
+/** Favoriten und Verlauf, sichtbar solange noch nicht gesucht wird. */
 @Composable
-private fun SearchResultRow(place: Place, from: GeoPoint?, onClick: () -> Unit) {
+private fun SuggestionList(
+    state: UiState,
+    onSelect: (Place) -> Unit,
+    onToggleFavorite: (Place) -> Unit,
+    onClearHistory: () -> Unit,
+) {
+    if (state.favorites.isEmpty() && state.history.isEmpty()) {
+        Text(
+            text = "Mindestens 3 Zeichen eingeben.",
+            style = MaterialTheme.typography.bodySmall,
+            color = AppTextMuted,
+            modifier = Modifier.padding(vertical = 12.dp),
+        )
+        return
+    }
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(max = 420.dp)
+    ) {
+        if (state.favorites.isNotEmpty()) {
+            item(key = "header-favorites") { SectionHeader("Favoriten") }
+            items(state.favorites, key = { "fav-${placeKey(it)}" }) { place ->
+                PlaceRow(
+                    place = place,
+                    from = state.location,
+                    leadingIcon = Icons.Filled.Star,
+                    leadingTint = AppPrimary,
+                    favorite = true,
+                    onToggleFavorite = onToggleFavorite,
+                    onClick = { onSelect(place) },
+                )
+                HorizontalDivider(color = AppTextMuted.copy(alpha = 0.12f))
+            }
+        }
+        if (state.history.isNotEmpty()) {
+            item(key = "header-history") {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    SectionHeader("Zuletzt", modifier = Modifier.weight(1f))
+                    TextButton(onClick = onClearHistory) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text("Leeren")
+                    }
+                }
+            }
+            items(state.history, key = { "his-${placeKey(it)}" }) { place ->
+                PlaceRow(
+                    place = place,
+                    from = state.location,
+                    leadingIcon = Icons.Filled.History,
+                    leadingTint = AppTextMuted,
+                    favorite = state.favorites.any { it == place },
+                    onToggleFavorite = onToggleFavorite,
+                    onClick = { onSelect(place) },
+                )
+                HorizontalDivider(color = AppTextMuted.copy(alpha = 0.12f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SectionHeader(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelLarge,
+        fontWeight = FontWeight.Bold,
+        color = AppTextMuted,
+        modifier = modifier.padding(top = 10.dp, bottom = 2.dp),
+    )
+}
+
+@Composable
+private fun PlaceRow(
+    place: Place,
+    from: GeoPoint?,
+    leadingIcon: ImageVector,
+    leadingTint: Color,
+    favorite: Boolean,
+    onToggleFavorite: (Place) -> Unit,
+    onClick: () -> Unit,
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick)
-            .padding(vertical = 12.dp),
+            .padding(vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Icon(
-            imageVector = Icons.Filled.LocationOn,
+            imageVector = leadingIcon,
             contentDescription = null,
-            tint = AppTextMuted,
+            tint = leadingTint,
             modifier = Modifier.size(22.dp),
         )
         Column(modifier = Modifier.weight(1f)) {
@@ -196,5 +301,15 @@ private fun SearchResultRow(place: Place, from: GeoPoint?, onClick: () -> Unit) 
                 color = AppTextMuted,
             )
         }
+        IconButton(onClick = { onToggleFavorite(place) }) {
+            Icon(
+                imageVector = if (favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                contentDescription = if (favorite) "Favorit entfernen" else "Als Favorit speichern",
+                tint = if (favorite) AppPrimary else AppTextMuted,
+            )
+        }
     }
 }
+
+private fun placeKey(place: Place): String =
+    "${place.name}|${place.point.lat}|${place.point.lon}"

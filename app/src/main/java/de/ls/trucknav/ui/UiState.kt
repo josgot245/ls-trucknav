@@ -62,6 +62,12 @@ data class UiState(
     val results: List<Place> = emptyList(),
     val destination: Place? = null,
 
+    /** Gespeicherte Ziele (Favoriten), neueste zuerst. */
+    val favorites: List<Place> = emptyList(),
+
+    /** Zuletzt gestartete Ziele (Verlauf), neueste zuerst. */
+    val history: List<Place> = emptyList(),
+
     val route: RouteResult? = null,
     val routing: Boolean = false,
     val routeError: String? = null,

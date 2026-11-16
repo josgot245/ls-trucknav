@@ -23,7 +23,6 @@ import de.ls.trucknav.model.RouteResult
 import de.ls.trucknav.ui.UiState
 import de.ls.trucknav.util.distanceMeters
 import kotlinx.coroutines.isActive
-import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
@@ -72,7 +71,7 @@ fun TruckMapView(
         appliedStyleUrl = url
         map.setStyle(Style.Builder().fromUri(url)) { style ->
             MapLayers.addUserArrow(style, context)
-            MapLayers.install(style)
+            MapLayers.install(style, context)
             // Im dunklen Design Strassen hervorheben, damit sie nachts sichtbar sind.
             if (url == MapStyles.DARK) MapLayers.highlightDarkRoads(style)
             styleReady = true
@@ -98,28 +97,20 @@ fun TruckMapView(
                             followEnabled.value = false
                         }
                     }
-                    // In der freien Ansicht zeigt das Kompass-Symbol, ob die
-                    // Karte nach Norden ausgerichtet ist.
+                    // Waehrend manueller Bedienung (Folgen pausiert) zeigt das
+                    // Kompass-Symbol, ob die Karte nach Norden ausgerichtet ist.
                     map.addOnCameraIdleListener {
-                        if (!latestState.value.navActive) {
+                        if (!followEnabled.value) {
                             controls.northUp = abs(map.cameraPosition.bearing) < 1.0f
                         }
                     }
-                    controls.zoomInAction = { zoomBy(map, zoomBias, followEnabled, latestState, +1.0) }
-                    controls.zoomOutAction = { zoomBy(map, zoomBias, followEnabled, latestState, -1.0) }
+                    controls.zoomInAction = { zoomBy(map, zoomBias, followEnabled, +1.0) }
+                    controls.zoomOutAction = { zoomBy(map, zoomBias, followEnabled, -1.0) }
                     controls.compassAction = {
-                        if (latestState.value.navActive) {
-                            // Zwischen Fahrtrichtung und Norden wechseln.
-                            controls.northUp = !controls.northUp
-                            followEnabled.value = true
-                        } else {
-                            controls.northUp = true
-                            val target = CameraPosition.Builder(map.cameraPosition)
-                                .bearing(0.0)
-                                .tilt(0.0)
-                                .build()
-                            map.animateCamera(CameraUpdateFactory.newCameraPosition(target), 500)
-                        }
+                        // Zwischen Fahrtrichtung und Norden wechseln und das
+                        // Folgen wieder aufnehmen (wie in ueblichen Navi-Apps).
+                        controls.northUp = !controls.northUp
+                        followEnabled.value = true
                     }
                     applyMapStyle(map)
                 }
@@ -215,14 +206,17 @@ fun TruckMapView(
         MapLayers.render(style, state)
     }
 
-    // Kamera-Folgemodus: laeuft nur waehrend der Navigation und interpoliert
-    // Position/Kurs weich, statt bei jedem Fix zu springen.
+    // Kamera-Folgemodus: laeuft mit und ohne Zielfuehrung und interpoliert
+    // Position/Kurs weich, statt bei jedem Fix zu springen. Nach manuellem
+    // Verschieben pausiert das Folgen, bis "zentrieren"/Kompass gedrueckt wird.
     LaunchedEffect(styleReady, mapHolder.value, state.navActive) {
-        if (!styleReady || !state.navActive) return@LaunchedEffect
+        if (!styleReady) return@LaunchedEffect
         val map = mapHolder.value ?: return@LaunchedEffect
 
         val topPadding = with(density) { 150.dp.roundToPx() }
-        val bottomPadding = with(density) { 190.dp.roundToPx() }
+        val bottomPadding = with(density) {
+            (if (latestState.value.navActive) 190 else 250).dp.roundToPx()
+        }
         map.setPadding(0, topPadding, 0, bottomPadding)
 
         var camLat = Double.NaN
@@ -241,10 +235,11 @@ fun TruckMapView(
             withFrameNanos { frameNanos ->
                 val st = latestState.value
                 val nav = st.nav
+                val navigating = st.navActive
                 // Ausserhalb der Route zeigt die Kamera die echte Position,
                 // damit sichtbar bleibt, dass sich das Fahrzeug bewegt.
                 val target = when {
-                    nav != null && !nav.offRoute -> nav.snapped
+                    navigating && nav != null && !nav.offRoute -> nav.snapped
                     st.location != null -> st.location
                     nav != null -> nav.snapped
                     else -> null
@@ -258,9 +253,11 @@ fun TruckMapView(
                     return@withFrameNanos
                 }
 
-                val offRoute = nav?.offRoute == true
-                val targetZoom = (if (offRoute) 16.2 else 17.0) + zoomBias.value
-                val targetTilt = if (offRoute) 30.0 else 45.0
+                val offRoute = navigating && nav?.offRoute == true
+                val targetZoom = (
+                    if (navigating) (if (offRoute) 16.2 else 17.0) else FREE_ZOOM
+                    ) + zoomBias.value
+                val targetTilt = if (navigating) (if (offRoute) 30.0 else 45.0) else 0.0
                 // Kompass: entweder in Fahrtrichtung oder nach Norden.
                 val targetBearing = if (controls.northUp) 0.0 else normalizeBearing(st.bearing.toDouble())
 
@@ -309,6 +306,9 @@ fun TruckMapView(
         }
     }
 
+    // Ohne Zielfuehrung folgt die Kamera der Position. Liegt eine Route vor
+    // (Navigation noch nicht gestartet), wird die Gesamtstrecke angezeigt;
+    // das Folgen pausiert dann bis "zentrieren"/Kompass.
     LaunchedEffect(
         styleReady,
         mapHolder.value,
@@ -324,15 +324,17 @@ fun TruckMapView(
         val sidePadding = with(density) { 24.dp.roundToPx() }
 
         val route = state.route
-        when {
-            route != null && route !== lastFittedRoute -> {
-                lastFittedRoute = route
-                map.setPadding(sidePadding, topPadding, sidePadding, bottomPadding)
-                MapCamera.fitRoute(map, route)
-            }
-
-            !centeredOnce && state.location != null -> {
-                centeredOnce = true
+        if (route != null && route !== lastFittedRoute) {
+            lastFittedRoute = route
+            centeredOnce = true
+            followEnabled.value = false
+            map.setPadding(sidePadding, topPadding, sidePadding, bottomPadding)
+            MapCamera.fitRoute(map, route)
+        } else if (state.location != null && !centeredOnce) {
+            centeredOnce = true
+            // Nur wenn das Folgen pausiert ist, muss die Kamera aktiv gesetzt
+            // werden; sonst uebernimmt der Frame-Loop.
+            if (!followEnabled.value) {
                 MapCamera.center(map, state.location)
             }
         }
@@ -340,11 +342,8 @@ fun TruckMapView(
 
     LaunchedEffect(recenterSignal) {
         if (recenterSignal <= 0) return@LaunchedEffect
-        val map = mapHolder.value ?: return@LaunchedEffect
+        // Folgen wieder aufnehmen; der Frame-Loop richtet die Kamera aus.
         followEnabled.value = true
-        val snapshot = latestState.value
-        val target = snapshot.nav?.snapped ?: snapshot.location ?: return@LaunchedEffect
-        MapCamera.center(map, target, if (snapshot.navActive) 17.0 else 15.5)
     }
 
     // Beim Start der Navigation mit Fahrtrichtung und neutralem Zoom beginnen.
@@ -352,28 +351,30 @@ fun TruckMapView(
         if (state.navActive) {
             controls.northUp = false
             zoomBias.value = 0.0
+            followEnabled.value = true
         }
     }
 }
 
 /**
- * Zoomt einen Schritt. Waehrend der Navigation (Kamera folgt) wird der Zoom
- * als Versatz gemerkt, damit die weiche Kamera ihn beruecksichtigt; sonst
- * wird direkt gezoomt.
+ * Zoomt einen Schritt. Laeuft das Folgen, wird der Zoom als Versatz gemerkt,
+ * damit die weiche Kamera ihn beruecksichtigt; sonst wird direkt gezoomt.
  */
 private fun zoomBy(
     map: MapLibreMap,
     zoomBias: androidx.compose.runtime.MutableState<Double>,
     followEnabled: androidx.compose.runtime.MutableState<Boolean>,
-    latestState: androidx.compose.runtime.State<UiState>,
     delta: Double,
 ) {
-    if (latestState.value.navActive && followEnabled.value) {
+    if (followEnabled.value) {
         zoomBias.value = (zoomBias.value + delta).coerceIn(-4.0, 4.0)
     } else {
         map.animateCamera(CameraUpdateFactory.zoomBy(delta), 300)
     }
 }
+
+/** Zoomstufe im freien Fahrmodus (ohne Zielfuehrung). */
+private const val FREE_ZOOM = 16.0
 
 /** Zeitkonstante der Positionsglaettung (Sekunden). */
 private const val POSITION_TAU_S = 0.35

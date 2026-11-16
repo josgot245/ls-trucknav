@@ -121,6 +121,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     truckPoisEnabled = settings.truckPois,
                     heightWarningsEnabled = settings.heightWarnings,
                     mapStyleMode = settings.mapStyleMode,
+                    favorites = settings.favorites,
+                    history = settings.history,
                 )
             }
             updateMapStyle()
@@ -680,6 +682,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    // ------------------------------------------------------- Favoriten/Verlauf
+
+    /** Fuegt ein Ziel zu den Favoriten hinzu bzw. entfernt es wieder. */
+    fun toggleFavorite(place: Place) {
+        val current = _state.value.favorites
+        val updated = if (current.any { it == place }) {
+            current.filterNot { it == place }
+        } else {
+            listOf(place) + current
+        }
+        _state.update { it.copy(favorites = updated) }
+        viewModelScope.launch { settingsRepo.saveFavorites(updated) }
+    }
+
+    /** Loescht den Verlauf der zuletzt gestarteten Ziele. */
+    fun clearHistory() {
+        if (_state.value.history.isEmpty()) return
+        _state.update { it.copy(history = emptyList()) }
+        viewModelScope.launch { settingsRepo.saveHistory(emptyList()) }
+    }
+
+    /** Merkt sich ein gestartetes Ziel im Verlauf (neueste zuerst). */
+    private fun recordHistory(place: Place) {
+        val updated = (listOf(place) + _state.value.history.filterNot { it == place })
+            .take(HISTORY_MAX)
+        _state.update { it.copy(history = updated) }
+        viewModelScope.launch { settingsRepo.saveHistory(updated) }
+    }
+
     // ------------------------------------------------------------------ Route
 
     /**
@@ -875,6 +906,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(navActive = true, arrived = false, nav = initial, showSearch = false)
         }
+        (route.destination ?: _state.value.destination)?.let { recordHistory(it) }
     }
 
     fun stopNavigation() {
@@ -1148,6 +1180,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         /** Obergrenze pro Routenabschnitt; wird auf der Route zurueckgesetzt. */
         const val MAX_REROUTES = 10
+
+        /** Anzahl der im Verlauf gemerkten Ziele. */
+        const val HISTORY_MAX = 8
 
         /** Punkte im gleitenden Streckenstueck fuer das Tempolimit. */
         const val SHAPE_MAX_POINTS = 12

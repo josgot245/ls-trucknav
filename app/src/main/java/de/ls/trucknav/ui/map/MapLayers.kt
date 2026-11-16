@@ -16,7 +16,6 @@ import de.ls.trucknav.model.TruckPoiKind
 import de.ls.trucknav.ui.UiState
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
-import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
@@ -104,7 +103,10 @@ object MapLayers {
         layer.setProperties(PropertyFactory.lineColor(color))
     }
 
-    fun install(style: org.maplibre.android.maps.Style) {
+    fun install(style: org.maplibre.android.maps.Style, context: Context) {
+        // Symbole (Ziel, Blitzer, Verkehr, POIs, Hoehen) als Bitmaps anlegen.
+        MapIconFactory.addAll(style, context)
+
         style.addSource(GeoJsonSource(ROUTE_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(USER_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(DEST_SOURCE, emptyCollection()))
@@ -130,65 +132,65 @@ object MapLayers {
                 PropertyFactory.lineJoin("round"),
             )
         )
+        // Ziel als Flaggen-Symbol.
         style.addLayer(
-            CircleLayer(DEST_LAYER, DEST_SOURCE).withProperties(
-                PropertyFactory.circleRadius(10f),
-                PropertyFactory.circleColor("#FFC246"),
-                PropertyFactory.circleStrokeWidth(3f),
-                PropertyFactory.circleStrokeColor("#0B141B"),
+            SymbolLayer(DEST_LAYER, DEST_SOURCE).withProperties(
+                PropertyFactory.iconImage(MapIconFactory.DESTINATION),
+                PropertyFactory.iconSize(0.95f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
             )
         )
-        // Blitzer liegen unter dem Fahrzeugpunkt, damit die eigene Position
-        // immer sichtbar bleibt. Rot/weiß invers zum Fahrzeugpunkt.
+        // Blitzer als Kamera-Symbol.
         style.addLayer(
-            CircleLayer(CAMERA_LAYER, CAMERA_SOURCE).withProperties(
-                PropertyFactory.circleRadius(7f),
-                PropertyFactory.circleColor("#E02B36"),
-                PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor("#FFFFFF"),
+            SymbolLayer(CAMERA_LAYER, CAMERA_SOURCE).withProperties(
+                PropertyFactory.iconImage(MapIconFactory.CAMERA),
+                PropertyFactory.iconSize(0.85f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
             )
         )
-        // Verkehrsmeldungen der Autobahn GmbH (Farbe je Art).
+        // Verkehrsmeldungen der Autobahn GmbH (Symbol je Art).
         style.addLayer(
-            CircleLayer(TRAFFIC_LAYER, TRAFFIC_SOURCE).withProperties(
-                PropertyFactory.circleRadius(8f),
-                PropertyFactory.circleColor(
+            SymbolLayer(TRAFFIC_LAYER, TRAFFIC_SOURCE).withProperties(
+                PropertyFactory.iconImage(
                     Expression.match(
                         Expression.get(KIND_PROPERTY),
-                        Expression.literal("traffic"), Expression.literal("#FFC246"),
-                        Expression.literal("closure"), Expression.literal("#E02B36"),
-                        Expression.literal("roadworks"), Expression.literal("#FF8A3D"),
-                        Expression.literal("#FFC246"),
+                        Expression.literal("traffic"), Expression.literal(MapIconFactory.TRAFFIC),
+                        Expression.literal("closure"), Expression.literal(MapIconFactory.CLOSURE),
+                        Expression.literal("roadworks"), Expression.literal(MapIconFactory.ROADWORKS),
+                        Expression.literal(MapIconFactory.TRAFFIC),
                     )
                 ),
-                PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor("#FFFFFF"),
+                PropertyFactory.iconSize(0.9f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
             )
         )
-        // LKW-Punkte aus OpenStreetMap (Farbe je Art).
+        // LKW-Punkte aus OpenStreetMap (Symbol je Art).
         style.addLayer(
-            CircleLayer(POI_LAYER, POI_SOURCE).withProperties(
-                PropertyFactory.circleRadius(7f),
-                PropertyFactory.circleColor(
+            SymbolLayer(POI_LAYER, POI_SOURCE).withProperties(
+                PropertyFactory.iconImage(
                     Expression.match(
                         Expression.get(KIND_PROPERTY),
-                        Expression.literal("parking"), Expression.literal("#3DA5FF"),
-                        Expression.literal("rest"), Expression.literal("#37C871"),
-                        Expression.literal("fuel"), Expression.literal("#B06BFF"),
-                        Expression.literal("#3DA5FF"),
+                        Expression.literal("parking"), Expression.literal(MapIconFactory.PARKING),
+                        Expression.literal("rest"), Expression.literal(MapIconFactory.REST),
+                        Expression.literal("fuel"), Expression.literal(MapIconFactory.FUEL),
+                        Expression.literal(MapIconFactory.PARKING),
                     )
                 ),
-                PropertyFactory.circleStrokeWidth(2f),
-                PropertyFactory.circleStrokeColor("#0B141B"),
+                PropertyFactory.iconSize(0.85f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
             )
         )
-        // Durchfahrtshoehen-Beschraenkungen (Warnfarbe).
+        // Durchfahrtshoehen-Beschraenkungen (Symbol mit "m").
         style.addLayer(
-            CircleLayer(HEIGHT_LAYER, HEIGHT_SOURCE).withProperties(
-                PropertyFactory.circleRadius(8f),
-                PropertyFactory.circleColor("#FF8A3D"),
-                PropertyFactory.circleStrokeWidth(2.5f),
-                PropertyFactory.circleStrokeColor("#FFFFFF"),
+            SymbolLayer(HEIGHT_LAYER, HEIGHT_SOURCE).withProperties(
+                PropertyFactory.iconImage(MapIconFactory.HEIGHT),
+                PropertyFactory.iconSize(0.9f),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
             )
         )
         // Eigene Position als Richtungspfeil: weiß gefuellt, roter Rand.

@@ -9,6 +9,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import de.ls.trucknav.model.Place
 import kotlinx.coroutines.flow.first
 
 private val Context.settingsStore: DataStore<Preferences> by preferencesDataStore(name = "lstrucknav_settings")
@@ -23,6 +24,8 @@ data class AppSettings(
     val truckPois: Boolean = false,
     val heightWarnings: Boolean = true,
     val mapStyleMode: MapStyleMode = MapStyleMode.AUTO,
+    val favorites: List<Place> = emptyList(),
+    val history: List<Place> = emptyList(),
 )
 
 /** Persistente Einstellungen (LKW-Profil, Routing-Server, Sprache). */
@@ -46,6 +49,8 @@ class SettingsRepository(private val context: Context) {
         val TRUCK_POIS = booleanPreferencesKey("truck_pois")
         val HEIGHT_WARNINGS = booleanPreferencesKey("height_warnings")
         val MAP_STYLE_MODE = stringPreferencesKey("map_style_mode")
+        val FAVORITES = stringPreferencesKey("favorites")
+        val HISTORY = stringPreferencesKey("history")
     }
 
     suspend fun load(): AppSettings {
@@ -73,6 +78,8 @@ class SettingsRepository(private val context: Context) {
             mapStyleMode = p[Keys.MAP_STYLE_MODE]
                 ?.let { name -> MapStyleMode.entries.firstOrNull { it.name == name } }
                 ?: MapStyleMode.AUTO,
+            favorites = PlaceCodec.decode(p[Keys.FAVORITES]),
+            history = PlaceCodec.decode(p[Keys.HISTORY]),
         )
     }
 
@@ -121,6 +128,16 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveMapStyleMode(mode: MapStyleMode) {
         context.settingsStore.edit { p -> p[Keys.MAP_STYLE_MODE] = mode.name }
+    }
+
+    suspend fun saveFavorites(favorites: List<Place>) {
+        val encoded = PlaceCodec.encode(favorites)
+        context.settingsStore.edit { p -> p[Keys.FAVORITES] = encoded }
+    }
+
+    suspend fun saveHistory(history: List<Place>) {
+        val encoded = PlaceCodec.encode(history)
+        context.settingsStore.edit { p -> p[Keys.HISTORY] = encoded }
     }
 
     companion object {

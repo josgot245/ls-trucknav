@@ -1,9 +1,13 @@
 package de.ls.trucknav.model
 
+import kotlinx.serialization.Serializable
+
 /** Ein geografischer Punkt in Grad. */
+@Serializable
 data class GeoPoint(val lat: Double, val lon: Double)
 
-/** Ein Suchtreffer bzw. ein Ziel. */
+/** Ein Suchtreffer bzw. ein Ziel. Wird auch fuer Favoriten/Verlauf gespeichert. */
+@Serializable
 data class Place(
     val name: String,
     val subtitle: String,
@@ -57,16 +61,23 @@ data class LaneGuide(
 }
 
 /**
- * Generierte Beschilderung einer Ausfahrt/Verzweigung (Autobahn-Schild).
+ * Generierte Beschilderung einer Ausfahrt/Verzweigung.
  * Alle Angaben stammen aus OpenStreetMap und ersetzen keine reale Beschilderung.
  */
 data class JunctionSign(
     /** Ausfahrtsnummer, z. B. "22". */
     val exitNumber: String?,
+    /** Strassennummern der Richtung, z. B. "A 94" oder "B 27". */
+    val branch: List<String> = emptyList(),
     /** Zielorte auf dem Schild (Richtung). */
     val toward: List<String>,
     /** Name der Ausfahrt, falls vorhanden. */
     val name: String?,
+    /**
+     * true = Autobahn (blaues Schild), false = Bundes-/Land-/Kreisstrasse
+     * (gelbes Schild). Siehe StVO-Beschilderung.
+     */
+    val highway: Boolean = false,
 )
 
 /** Ein Fahranweisungsschritt aus der Route. */

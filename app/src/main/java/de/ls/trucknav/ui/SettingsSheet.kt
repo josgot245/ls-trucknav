@@ -329,7 +329,7 @@ fun SettingsSheet(
 
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "Testversion 0.4.0 · Firmeninterne Nutzung",
+                text = "Testversion 0.5.0 · Firmeninterne Nutzung",
                 style = MaterialTheme.typography.labelSmall,
                 color = AppPrimary,
             )

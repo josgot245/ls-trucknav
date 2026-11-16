@@ -38,6 +38,8 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.Straight
 import androidx.compose.material.icons.filled.TurnLeft
 import androidx.compose.material.icons.filled.TurnRight
@@ -48,7 +50,6 @@ import androidx.compose.material.icons.filled.TurnSlightRight
 import androidx.compose.material.icons.filled.UTurnLeft
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -298,6 +299,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     state = state,
                     onStart = viewModel::startNavigation,
                     onClear = viewModel::clearDestination,
+                    onToggleFavorite = viewModel::toggleFavorite,
                 )
 
                 state.destination != null && state.routeError != null -> ErrorCard(
@@ -337,6 +339,8 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 state = state,
                 onQueryChange = viewModel::onQueryChange,
                 onSelect = viewModel::selectDestination,
+                onToggleFavorite = viewModel::toggleFavorite,
+                onClearHistory = viewModel::clearHistory,
                 onDismiss = viewModel::closeSearch,
             )
         }
@@ -743,13 +747,20 @@ private fun LaneRow(lanes: List<LaneGuide>) {
     }
 }
 
-/** Generiertes Autobahn-Schild mit Ausfahrtsnummer und Zielorten. */
+/**
+ * Generiertes Schild: Autobahnen blau/weiss, Bundes-, Land- und Kreisstrassen
+ * gelb/schwarz (StVO-Beschilderung).
+ */
 @Composable
 private fun JunctionSignView(sign: JunctionSign) {
+    val background = if (sign.highway) AutobahnBlue else BundesYellow
+    val borderColor = if (sign.highway) Color.White else Color.Black
+    val textColor = if (sign.highway) Color.White else Color.Black
+    val chipTextColor = if (sign.highway) AutobahnBlue else Color.Black
     Surface(
         shape = RoundedCornerShape(8.dp),
-        color = AutobahnBlue,
-        border = BorderStroke(2.dp, Color.White),
+        color = background,
+        border = BorderStroke(2.dp, borderColor),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -771,13 +782,32 @@ private fun JunctionSignView(sign: JunctionSign) {
                 Spacer(Modifier.width(10.dp))
             }
             Column {
+                if (sign.branch.isNotEmpty()) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        sign.branch.forEach { number ->
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = Color.White,
+                            ) {
+                                Text(
+                                    text = number,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    fontWeight = FontWeight.Bold,
+                                    color = chipTextColor,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                                )
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(4.dp))
+                }
                 val targets = sign.toward.ifEmpty { listOfNotNull(sign.name) }
                 if (targets.isEmpty()) {
                     Text(
                         text = "Ausfahrt",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = Color.White,
+                        color = textColor,
                     )
                 } else {
                     targets.forEach { target ->
@@ -785,7 +815,7 @@ private fun JunctionSignView(sign: JunctionSign) {
                             text = target,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = textColor,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -816,8 +846,11 @@ private fun RouteCard(
     state: UiState,
     onStart: () -> Unit,
     onClear: () -> Unit,
+    onToggleFavorite: (Place) -> Unit,
 ) {
     val route = state.route ?: return
+    val destination = state.destination
+    val isFavorite = destination != null && state.favorites.any { it == destination }
     Surface(
         shape = RoundedCornerShape(26.dp),
         color = AppSurface,
@@ -847,6 +880,19 @@ private fun RouteCard(
                 }
                 if (!route.truckUsed) {
                     WarningPill("PKW-Route")
+                }
+                if (destination != null) {
+                    IconButton(onClick = { onToggleFavorite(destination) }) {
+                        Icon(
+                            imageVector = if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            contentDescription = if (isFavorite) {
+                                "Favorit entfernen"
+                            } else {
+                                "Als Favorit speichern"
+                            },
+                            tint = if (isFavorite) AppPrimary else AppTextMuted,
+                        )
+                    }
                 }
             }
 
@@ -967,12 +1013,7 @@ private fun NavDashboard(
             if (nav?.offRoute == true) {
                 Spacer(Modifier.height(10.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.Warning,
-                        contentDescription = null,
-                        tint = AppSecondary,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    WarningTriangle(size = 18.dp)
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = "Route wird neu berechnet …",
@@ -1058,11 +1099,6 @@ private fun TrafficWarningBanner(warning: TrafficWarning, distance: Double) {
         warning.kind == TrafficKind.ROADWORKS -> "Baustelle"
         else -> "Verkehrsmeldung"
     }
-    val accent = if (warning.blocked || warning.kind == TrafficKind.CLOSURE) {
-        AppDanger
-    } else {
-        AppSecondary
-    }
     val detail = buildString {
         append(warning.subtitle ?: warning.title)
         if (warning.jam && warning.averageSpeedKmh != null) {
@@ -1082,12 +1118,7 @@ private fun TrafficWarningBanner(warning: TrafficWarning, distance: Double) {
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Warning,
-                contentDescription = null,
-                tint = accent,
-                modifier = Modifier.size(30.dp),
-            )
+            WarningTriangle(size = 30.dp)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -1122,12 +1153,7 @@ private fun HeightWarningBanner(restriction: HeightRestriction, distance: Double
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                imageVector = Icons.Filled.Warning,
-                contentDescription = null,
-                tint = AppDanger,
-                modifier = Modifier.size(30.dp),
-            )
+            WarningTriangle(size = 30.dp)
             Spacer(Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -1223,11 +1249,7 @@ private fun ErrorCard(
     ) {
         Column(modifier = Modifier.padding(18.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Filled.Warning,
-                    contentDescription = null,
-                    tint = AppDanger,
-                )
+                WarningTriangle(size = 26.dp)
                 Spacer(Modifier.width(10.dp))
                 Text(
                     text = "Keine Route",
@@ -1354,3 +1376,6 @@ private const val LANE_GUIDE_DISTANCE_M = 800.0
 
 /** Farbe des generierten Autobahn-Schilds. */
 private val AutobahnBlue = Color(0xFF1A4FA0)
+
+/** Farbe des generierten Bundes-/Land-/Kreisstrassen-Schilds (StVO-Gelb). */
+private val BundesYellow = Color(0xFFF2C200)

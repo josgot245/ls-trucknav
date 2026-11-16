@@ -26,16 +26,50 @@ internal fun parseManeuverLanes(maneuver: JsonObject): List<LaneGuide> {
 }
 
 /**
- * Liest die generierte Beschilderung (Ausfahrtsnummer und Ziele) eines
- * Manoevers. Liefert null, wenn keine Beschilderung vorhanden ist.
+ * Liest die generierte Beschilderung (Ausfahrtsnummer, Strassennummern und
+ * Ziele) eines Manoevers. Liefert null, wenn keine Beschilderung vorhanden ist.
  */
 internal fun parseManeuverSign(maneuver: JsonObject): JunctionSign? {
     val sign = maneuver["sign"] as? JsonObject ?: return null
     val exitNumber = textElements(sign, "exit_number_elements").firstOrNull()
+    val branch = textElements(sign, "exit_branch_elements")
     val toward = textElements(sign, "exit_toward_elements")
     val name = textElements(sign, "exit_name_elements").joinToString("/").ifBlank { null }
-    if (exitNumber == null && toward.isEmpty() && name == null) return null
-    return JunctionSign(exitNumber = exitNumber, toward = toward, name = name)
+    if (exitNumber == null && branch.isEmpty() && toward.isEmpty() && name == null) return null
+    return JunctionSign(
+        exitNumber = exitNumber,
+        branch = branch,
+        toward = toward,
+        name = name,
+        highway = isHighwaySign(maneuver, exitNumber, branch),
+    )
+}
+
+/**
+ * Erkennt, ob eine Beschilderung zu einer Autobahn gehoert (blaues Schild).
+ * Grundlage sind Valhallas `highway`-Flag am Manoever, die Ausfahrtsnummer
+ * sowie Autobahn-Kennungen ("A 3") in den Strassennummern oder Strassennamen.
+ * Alles andere (Bundes-, Land- und Kreisstrassen) ist gelb/schwarz.
+ */
+private fun isHighwaySign(
+    maneuver: JsonObject,
+    exitNumber: String?,
+    branch: List<String>,
+): Boolean {
+    if (maneuver.booleanOrNull("highway") == true) return true
+    if (exitNumber != null) return true
+    if (branch.any { isAutobahnNumber(it) }) return true
+    val streets = maneuver["street_names"] as? JsonArray ?: return false
+    return streets.any { element ->
+        isAutobahnNumber((element as? JsonPrimitive)?.contentOrNull)
+    }
+}
+
+/** true, wenn die Kennung eine Autobahn ist, z. B. "A 3" oder "A94". */
+private fun isAutobahnNumber(text: String?): Boolean {
+    val value = text?.trim()?.uppercase() ?: return false
+    if (value.startsWith("A ")) return true
+    return value.length > 1 && value[0] == 'A' && value[1].isDigit()
 }
 
 /** Valhalla liefert "active" je nach Server als true oder als Zahl ungleich 0. */

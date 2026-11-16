@@ -75,4 +75,60 @@ class LaneParsingTest {
         assertNull(parseManeuverSign(obj("""{"sign":{}}""")))
         assertNull(parseManeuverSign(obj("""{"instruction":"Links abbiegen"}""")))
     }
+
+    @Test
+    fun parsesBranchRoadNumbers() {
+        // So liefert Valhalla die Strassennummern der Richtung.
+        val maneuver = obj(
+            """
+            {"sign":{
+              "exit_branch_elements":[{"text":"A 94"},{"text":"A 9"}],
+              "exit_toward_elements":[{"text":"Salzburg"}]
+            }}
+            """.trimIndent()
+        )
+        val sign = parseManeuverSign(maneuver)!!
+        assertEquals(listOf("A 94", "A 9"), sign.branch)
+        assertTrue(sign.highway)
+    }
+
+    @Test
+    fun exitNumberImpliesHighway() {
+        val maneuver = obj("""{"sign":{"exit_number_elements":[{"text":"22"}]}}""")
+        assertTrue(parseManeuverSign(maneuver)!!.highway)
+    }
+
+    @Test
+    fun highwayFlagOnManeuverImpliesHighway() {
+        val maneuver = obj(
+            """{"highway":true,"street_names":["A 94"],"sign":{"exit_toward_elements":[{"text":"Passau"}]}}"""
+        )
+        assertTrue(parseManeuverSign(maneuver)!!.highway)
+    }
+
+    @Test
+    fun autobahnStreetNameImpliesHighway() {
+        val maneuver = obj(
+            """{"street_names":["A 94"],"sign":{"exit_toward_elements":[{"text":"Passau"}]}}"""
+        )
+        assertTrue(parseManeuverSign(maneuver)!!.highway)
+    }
+
+    @Test
+    fun bundesstrasseIsNotHighway() {
+        val maneuver = obj(
+            """{"street_names":["B 28"],"sign":{"exit_toward_elements":[{"text":"Kusterdingen"}]}}"""
+        )
+        val sign = parseManeuverSign(maneuver)!!
+        assertFalse(sign.highway)
+        assertTrue(sign.branch.isEmpty())
+    }
+
+    @Test
+    fun kreisstrasseIsNotHighway() {
+        val maneuver = obj(
+            """{"street_names":["K 6903"],"sign":{"exit_toward_elements":[{"text":"Wankheim"}]}}"""
+        )
+        assertFalse(parseManeuverSign(maneuver)!!.highway)
+    }
 }
