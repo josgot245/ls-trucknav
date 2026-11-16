@@ -28,7 +28,10 @@ if (-not (Test-Path $apk)) {
     throw "APK nicht gefunden: $apk"
 }
 
-$target = Join-Path $project 'LS-TruckNav-0.5.0.apk'
+$gradleFile = Join-Path $project 'app\build.gradle.kts'
+$versionMatch = Select-String -Path $gradleFile -Pattern 'versionName\s*=\s*"([^"]+)"' | Select-Object -First 1
+$version = if ($versionMatch) { $versionMatch.Matches[0].Groups[1].Value } else { 'dev' }
+$target = Join-Path $project "LS-TruckNav-$version.apk"
 Copy-Item $apk $target -Force
 
 Write-Host ""

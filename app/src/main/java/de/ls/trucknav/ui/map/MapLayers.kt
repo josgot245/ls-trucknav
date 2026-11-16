@@ -19,6 +19,7 @@ import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
+import org.maplibre.android.style.layers.TransitionOptions
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.FeatureCollection
@@ -106,6 +107,13 @@ object MapLayers {
     fun install(style: org.maplibre.android.maps.Style, context: Context) {
         // Symbole (Ziel, Blitzer, Verkehr, POIs, Hoehen) als Bitmaps anlegen.
         MapIconFactory.addAll(style, context)
+        // Nach einem Stilwechsel sind die Quellen neu und leer: Erneut befuellen.
+        lastRouteRef = null
+        lastDestination = null
+        lastCameras = null
+        lastTraffic = null
+        lastPois = null
+        lastHeights = null
 
         style.addSource(GeoJsonSource(ROUTE_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(USER_SOURCE, emptyCollection()))
@@ -207,6 +215,27 @@ object MapLayers {
                 PropertyFactory.iconRotate(Expression.get(BEARING_PROPERTY)),
             )
         )
+        // Beim Aktualisieren der Symbolquellen (z. B. jede GPS-Position) wuerde
+        // MapLibre die Symbole sonst aus- und wieder einblenden ("Blinken").
+        // Die Platzierungs-Uebergaenge werden daher fuer alle Symbol-Ebenen
+        // abgeschaltet, damit Marker sofort an der neuen Stelle erscheinen.
+        disableSymbolFades(style)
+    }
+
+    private val SYMBOL_LAYERS = listOf(
+        DEST_LAYER,
+        CAMERA_LAYER,
+        TRAFFIC_LAYER,
+        POI_LAYER,
+        HEIGHT_LAYER,
+        USER_LAYER,
+    )
+
+    private fun disableSymbolFades(style: Style) {
+        val noFade = TransitionOptions(0L, 0L, false)
+        SYMBOL_LAYERS.forEach { id ->
+            style.getLayerAs<SymbolLayer>(id)?.setIconOpacityTransition(noFade)
+        }
     }
 
     fun render(style: org.maplibre.android.maps.Style, state: UiState) {
@@ -228,8 +257,19 @@ object MapLayers {
         setHeights(style, if (state.heightWarningsEnabled) state.heightRestrictions else emptyList())
     }
 
+    private var lastRouteRef: RouteResult? = null
+    private var lastDestination: GeoPoint? = null
+    private var lastCameras: List<SpeedCamera>? = null
+    private var lastTraffic: List<TrafficWarning>? = null
+    private var lastPois: List<TruckPoi>? = null
+    private var lastHeights: List<HeightRestriction>? = null
+
     private fun setRoute(style: org.maplibre.android.maps.Style, route: RouteResult?) {
         val source = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE) ?: return
+        if (route === lastRouteRef) {
+            return
+        }
+        lastRouteRef = route
         if (route == null || route.points.size < 2) {
             source.setGeoJson(emptyCollection())
             return
@@ -237,6 +277,16 @@ object MapLayers {
         val coordinates = route.points.map { Point.fromLngLat(it.lon, it.lat) }
         val line = LineString.fromLngLats(coordinates)
         source.setGeoJson(FeatureCollection.fromFeatures(listOf(Feature.fromGeometry(line))))
+    }
+
+    /**
+     * Setzt die eigene Position an eine bereits interpolierte Stelle. Wird vom
+     * Frame-Loop mit derselben Position aufgerufen wie die Kamera, damit der
+     * Pfeil waehrend der Fahrt ruhig auf dem Bildschirmmittepunkt bleibt statt
+     * einmal pro GPS-Fix zu springen.
+     */
+    fun setUserPosition(style: Style, lat: Double, lon: Double, bearing: Float) {
+        setUserPoint(style, GeoPoint(lat, lon), bearing)
     }
 
     private fun setUserPoint(style: org.maplibre.android.maps.Style, point: GeoPoint?, bearing: Float) {
@@ -251,6 +301,8 @@ object MapLayers {
     }
 
     private fun setPoint(style: org.maplibre.android.maps.Style, sourceId: String, point: GeoPoint?) {
+        if (sourceId == DEST_SOURCE && point == lastDestination) return
+        if (sourceId == DEST_SOURCE) lastDestination = point
         val source = style.getSourceAs<GeoJsonSource>(sourceId) ?: return
         if (point == null) {
             source.setGeoJson(emptyCollection())
@@ -261,6 +313,8 @@ object MapLayers {
     }
 
     private fun setCameras(style: org.maplibre.android.maps.Style, cameras: List<SpeedCamera>) {
+        if (cameras == lastCameras) return
+        lastCameras = cameras
         val source = style.getSourceAs<GeoJsonSource>(CAMERA_SOURCE) ?: return
         if (cameras.isEmpty()) {
             source.setGeoJson(emptyCollection())
@@ -273,6 +327,8 @@ object MapLayers {
     }
 
     private fun setTraffic(style: org.maplibre.android.maps.Style, warnings: List<TrafficWarning>) {
+        if (warnings == lastTraffic) return
+        lastTraffic = warnings
         val source = style.getSourceAs<GeoJsonSource>(TRAFFIC_SOURCE) ?: return
         if (warnings.isEmpty()) {
             source.setGeoJson(emptyCollection())
@@ -294,6 +350,8 @@ object MapLayers {
     }
 
     private fun setPois(style: org.maplibre.android.maps.Style, pois: List<TruckPoi>) {
+        if (pois == lastPois) return
+        lastPois = pois
         val source = style.getSourceAs<GeoJsonSource>(POI_SOURCE) ?: return
         if (pois.isEmpty()) {
             source.setGeoJson(emptyCollection())
@@ -315,6 +373,8 @@ object MapLayers {
     }
 
     private fun setHeights(style: org.maplibre.android.maps.Style, restrictions: List<HeightRestriction>) {
+        if (restrictions == lastHeights) return
+        lastHeights = restrictions
         val source = style.getSourceAs<GeoJsonSource>(HEIGHT_SOURCE) ?: return
         if (restrictions.isEmpty()) {
             source.setGeoJson(emptyCollection())

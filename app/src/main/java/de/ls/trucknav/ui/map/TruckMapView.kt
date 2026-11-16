@@ -91,7 +91,7 @@ fun TruckMapView(
                         isRotateGesturesEnabled = true
                     }
                     // Verschiebt der Fahrer die Karte selbst, pausiert das
-                    // automatische Folgen bis "zentrieren" gedrueckt wird.
+                    // automatische Folgen bis "zentrieren"/Kompass gedrueckt wird.
                     map.addOnCameraMoveStartedListener { reason ->
                         if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
                             followEnabled.value = false
@@ -238,15 +238,17 @@ fun TruckMapView(
                 val navigating = st.navActive
                 // Ausserhalb der Route zeigt die Kamera die echte Position,
                 // damit sichtbar bleibt, dass sich das Fahrzeug bewegt.
-                val target = when {
+                val targetOrNull = when {
                     navigating && nav != null && !nav.offRoute -> nav.snapped
                     st.location != null -> st.location
                     nav != null -> nav.snapped
                     else -> null
-                } ?: return@withFrameNanos
+                }
+                val target = targetOrNull ?: return@withFrameNanos
 
                 if (!followEnabled.value) {
-                    // Nach manuellem Verschieben nicht zurueckspringen.
+                    // Nach manuellem Verschieben nicht zurueckspringen; erst
+                    // "zentrieren"/Kompass nimmt das Folgen wieder auf.
                     camLat = Double.NaN
                     appliedLat = Double.NaN
                     lastFrameNanos = 0L
@@ -300,6 +302,12 @@ fun TruckMapView(
                         appliedBearing = camBearing
                         appliedZoom = camZoom
                         MapCamera.followPosition(map, camLat, camLon, camBearing, camZoom, camTilt)
+                        // Pfeil an derselben interpolierten Stelle zeichnen wie
+                        // die Kamera. Dadurch bleibt er ruhig im Bildmittelpunkt
+                        // statt einmal pro GPS-Fix nach vorn zu springen.
+                        map.style?.let { style ->
+                            MapLayers.setUserPosition(style, camLat, camLon, st.bearing)
+                        }
                     }
                 }
             }

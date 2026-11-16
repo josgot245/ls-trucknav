@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.TruckProfile
+import de.ls.trucknav.BuildConfig
 import de.ls.trucknav.ui.theme.AppDanger
 import de.ls.trucknav.ui.theme.AppPrimary
 import de.ls.trucknav.ui.theme.AppSurface
@@ -329,7 +330,7 @@ fun SettingsSheet(
 
             Spacer(Modifier.height(14.dp))
             Text(
-                text = "Testversion 0.5.0 · Firmeninterne Nutzung",
+                text = "Testversion ${BuildConfig.VERSION_NAME} · Firmeninterne Nutzung",
                 style = MaterialTheme.typography.labelSmall,
                 color = AppPrimary,
             )
