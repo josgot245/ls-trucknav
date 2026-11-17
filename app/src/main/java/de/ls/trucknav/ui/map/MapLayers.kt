@@ -184,6 +184,7 @@ object MapLayers {
                         Expression.literal("parking"), Expression.literal(MapIconFactory.PARKING),
                         Expression.literal("rest"), Expression.literal(MapIconFactory.REST),
                         Expression.literal("fuel"), Expression.literal(MapIconFactory.FUEL),
+                        Expression.literal("tankpool24"), Expression.literal(MapIconFactory.TANKPOOL24),
                         Expression.literal(MapIconFactory.PARKING),
                     )
                 ),
@@ -240,16 +241,10 @@ object MapLayers {
 
     fun render(style: org.maplibre.android.maps.Style, state: UiState) {
         setRoute(style, state.route)
-        // Auf der Route den projizierten Punkt zeigen (liegt sauber auf der
-        // Linie), abseits der Route die echte Position, damit der Fahrer
-        // sieht, wie er sich von der Route entfernt.
-        val nav = state.nav
-        val userPoint = if (nav != null && !nav.offRoute) {
-            nav.snapped
-        } else {
-            state.location ?: nav?.snapped
-        }
-        setUserPoint(style, userPoint, state.bearing)
+        // Die eigene Position (Pfeil) wird ausschliesslich vom Frame-Loop in
+        // [TruckMapView] gesetzt. Wuerde hier zusaetzlich geschrieben, springt
+        // der Pfeil bei jedem GPS-Fix kurz auf den rohen Snap-Punkt und im
+        // naechsten Frame wieder zurueck (sichtbares "Blinken").
         setPoint(style, DEST_SOURCE, state.destination?.point)
         setCameras(style, if (state.cameraWarnings) state.cameras else emptyList())
         setTraffic(style, state.trafficWarnings)
@@ -365,6 +360,7 @@ object MapLayers {
                         TruckPoiKind.PARKING -> "parking"
                         TruckPoiKind.REST -> "rest"
                         TruckPoiKind.FUEL -> "fuel"
+                        TruckPoiKind.TANKPOOL24 -> "tankpool24"
                     },
                 )
             }

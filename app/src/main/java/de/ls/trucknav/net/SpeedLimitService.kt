@@ -18,9 +18,16 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/** Tempolimit und Strassenname des aktuellen Abschnitts. */
+/**
+ * Tempolimit und Strassenname des aktuellen Abschnitts.
+ *
+ * [speedLimitKmh] ist das allgemeine (PKW-)Limit; [truckSpeedLimitKmh] das in
+ * Deutschland fuer LKW ueber 3,5 t gueltige Limit (Autobahn 80, ausserorts 60,
+ * innerorts das allgemeine Limit).
+ */
 data class RoadInfo(
     val speedLimitKmh: Int?,
+    val truckSpeedLimitKmh: Int?,
     val roadName: String?,
 )
 
@@ -107,7 +114,7 @@ class SpeedLimitService(private val client: OkHttpClient = Http.client) {
                 Json.parseToJsonElement(body).jsonObject
             }.getOrNull() ?: return null
 
-            val edges = root["edges"]?.jsonArray ?: return RoadInfo(null, null)
+            val edges = root["edges"]?.jsonArray ?: return RoadInfo(null, null, null)
             val matched = root["matched_points"]?.jsonArray
             val edgeIndex = matched?.lastOrNull()?.jsonObject?.intOrNull("edge_index")
 
@@ -116,16 +123,41 @@ class SpeedLimitService(private val client: OkHttpClient = Http.client) {
             val edge = when {
                 edgeIndex != null -> edges.getOrNull(edgeIndex)?.jsonObject
                 else -> edges.lastOrNull()?.jsonObject
-            } ?: return RoadInfo(null, null)
+            } ?: return RoadInfo(null, null, null)
 
             val limit = edge.intOrNull("speed_limit")?.takeIf { it in 5..140 }
+            val roadClass = edge.stringOrNull("road_class")
             val name = edge["names"]?.jsonArray
                 ?.firstOrNull()
                 ?.toString()
                 ?.trim('"')
                 ?.takeIf { it.isNotBlank() }
 
-            return RoadInfo(speedLimitKmh = limit, roadName = name)
+            return RoadInfo(
+                speedLimitKmh = limit,
+                truckSpeedLimitKmh = truckLimit(limit, roadClass),
+                roadName = name,
+            )
         }
+
+        /**
+         * Deutsches LKW-Tempolimit (> 3,5 t) aus dem allgemeinen Limit und der
+         * Strassenklasse. Auf Autobahnen 80 km/h, sonst hoechstens 60 km/h
+         * (ausserorts). Innerorts bleibt das niedrigere allgemeine Limit
+         * gueltig, weil hier nie mehr als 50 km/h erlaubt ist.
+         *
+         * Bewusst konservativ: "trunk" (Kraftfahrstrasse) wird wie eine
+         * Landstrasse behandelt, damit kein zu hohes Limit angezeigt wird.
+         */
+        internal fun truckLimit(carLimit: Int?, roadClass: String?): Int? {
+            val cap = if (roadClass == "motorway") TRUCK_MOTORWAY_KMH else TRUCK_RURAL_KMH
+            return if (carLimit == null) cap else minOf(carLimit, cap)
+        }
+
+        /** LKW-Limit auf Autobahnen (Deutschland, § 3 StVO). */
+        private const val TRUCK_MOTORWAY_KMH = 80
+
+        /** LKW-Limit ausserorts (Deutschland, § 3 StVO). */
+        private const val TRUCK_RURAL_KMH = 60
     }
 }

@@ -2,6 +2,8 @@ package de.ls.trucknav.net
 
 import de.ls.trucknav.model.GeoPoint
 import de.ls.trucknav.model.HeightRestriction
+import de.ls.trucknav.model.TrafficKind
+import de.ls.trucknav.model.TrafficWarning
 import de.ls.trucknav.model.TruckPoi
 import de.ls.trucknav.model.TruckPoiKind
 import kotlinx.coroutines.CancellationException
@@ -58,6 +60,36 @@ class TruckInfoService(private val client: OkHttpClient = Http.slowClient) {
         }.distinctBy { it.id }
     }
 
+    /**
+     * Baustellen abseits der Autobahn aus OpenStreetMap (best-effort).
+     * Ergaenzt die Autobahn-Meldungen der Autobahn GmbH, damit auch Bundes- und
+     * Landstrassen abgedeckt sind. OSM ist nicht in Echtzeit und kann
+     * unvollstaendig oder veraltet sein.
+     */
+    suspend fun roadworks(
+        center: GeoPoint,
+        radiusMeters: Int = DEFAULT_ROADWORKS_RADIUS_M,
+    ): List<TrafficWarning>? = query(roadworksQuery(center, radiusMeters)) { elements ->
+        elements.mapNotNull { element ->
+            val obj = element.jsonObject
+            val id = obj.stringOrNull("id") ?: return@mapNotNull null
+            val point = pointOf(obj) ?: return@mapNotNull null
+            val tags = obj["tags"]?.jsonObject
+            val name = tags?.stringOrNull("name")
+            TrafficWarning(
+                id = "osm-roadworks-$id",
+                point = point,
+                title = "Baustelle (OpenStreetMap)",
+                subtitle = name,
+                kind = TrafficKind.ROADWORKS,
+                blocked = false,
+                averageSpeedKmh = null,
+                delayMinutes = null,
+                jam = false,
+            )
+        }.distinctBy { it.id }
+    }
+
     private suspend fun <T> query(
         overpassQuery: String,
         parse: (List<kotlinx.serialization.json.JsonElement>) -> List<T>,
@@ -86,6 +118,7 @@ class TruckInfoService(private val client: OkHttpClient = Http.slowClient) {
     companion object {
         const val DEFAULT_POI_RADIUS_M = 8_000
         const val DEFAULT_HEIGHT_RADIUS_M = 3_000
+        const val DEFAULT_ROADWORKS_RADIUS_M = 3_000
 
         internal fun poiQuery(center: GeoPoint, radius: Int): String = buildString {
             append("[out:json][timeout:25];(")
@@ -106,6 +139,13 @@ class TruckInfoService(private val client: OkHttpClient = Http.slowClient) {
             append("way[\"maxheight\"](around:$radius,${center.lat},${center.lon});")
             append("way[\"maxheight:physical\"](around:$radius,${center.lat},${center.lon});")
             append("node[\"maxheight\"](around:$radius,${center.lat},${center.lon});")
+            append(");out center tags;")
+        }
+
+        internal fun roadworksQuery(center: GeoPoint, radius: Int): String = buildString {
+            append("[out:json][timeout:25];(")
+            append("way[\"highway\"=\"construction\"](around:$radius,${center.lat},${center.lon});")
+            append("node[\"highway\"=\"construction\"](around:$radius,${center.lat},${center.lon});")
             append(");out center tags;")
         }
 

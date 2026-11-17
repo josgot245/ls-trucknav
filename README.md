@@ -3,7 +3,7 @@
 Firmeninterne LKW-Navigations-App für Android. Karte, Adresssuche, LKW-Routing
 mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
-**Version:** 0.5.1
+**Version:** 0.6.0
 
 ---
 
@@ -26,7 +26,9 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   - Zielerreichung
 - **Tempolimit** des aktuellen Straßenabschnitts als StVO-Schild 274
   (weißer Kreis, roter Ring) – in der Statusleiste und groß während der
-  Navigation; bei Überschreitung wird die Geschwindigkeit rot
+  Navigation; bei Überschreitung wird die Geschwindigkeit rot. Für LKW über
+  3,5 t gilt automatisch das strengere LKW-Limit (Autobahn 80, außerorts 60,
+  innerorts das allgemeine Limit)
 - **Blitzer-Warnungen** (abschaltbar): Hinweisbanner + Ansage vor stationären
   Blitzern aus OpenStreetMap, Marker auf der Karte
 - **Symbole auf der Karte** statt einfarbiger Punkte: Ziel, Blitzer,
@@ -34,9 +36,12 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   (zur Laufzeit gezeichnet, keine Bilddateien)
 - **Live-Verkehr** von der Autobahn GmbH (kostenlos, ohne Key): Stau,
   stockender Verkehr, Sperrungen und Baustellen auf Autobahnen – als
-  Hinweisbanner und Markierung auf der Karte
+  Hinweisbanner und Markierung auf der Karte. Meldungen der Gegenrichtung
+  werden anhand der Abschnittsrichtung ausgeblendet. Abseits der Autobahn
+  werden Baustellen ergänzend aus OpenStreetMap geladen (best-effort)
 - **LKW-POIs** (abschaltbar): LKW-Parkplätze, Raststätten/Autohöfe und
-  LKW-taugliche Tankstellen aus OpenStreetMap
+  LKW-taugliche Tankstellen aus OpenStreetMap. Optional zusätzlich die
+  offiziellen **Tankpool24**-Stationen (einmalig geladen, danach offline)
 - **Durchfahrtshöhen-Warnung** (standardmäßig an): Brücken und Tunnel mit
   lichter Höhe aus OpenStreetMap; Warnung, wenn die eingestellte Fahrzeughöhe
   nicht passt
@@ -59,7 +64,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
 ## Installation auf dem Handy
 
-1. `LS-TruckNav-0.5.1.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
+1. `LS-TruckNav-0.6.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
 2. Datei antippen → „Installieren“. Falls gefragt: „Unbekannte Quellen“ für den
    Dateimanager erlauben.
 3. Beim ersten Start **Standortberechtigung** erteilen.
@@ -67,7 +72,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 Alternativ per USB-Debugging:
 
 ```powershell
-adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.5.1.apk"
+adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.6.0.apk"
 ```
 
 Voraussetzung: Android 10 oder neuer.
@@ -217,7 +222,7 @@ Oder einfach:
 ```
 
 Das Skript baut die Release-Variante (mit Debug-Key signiert, intern
-installierbar) und kopiert sie als `LS-TruckNav-0.5.1.apk` ins Projektverzeichnis.
+installierbar) und kopiert sie als `LS-TruckNav-0.6.0.apk` ins Projektverzeichnis.
 
 ### App-Icon
 

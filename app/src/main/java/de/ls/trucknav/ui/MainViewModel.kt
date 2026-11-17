@@ -22,12 +22,14 @@ import de.ls.trucknav.model.RouteResult
 import de.ls.trucknav.model.SpeedCamera
 import de.ls.trucknav.model.TrafficKind
 import de.ls.trucknav.model.TrafficWarning
+import de.ls.trucknav.model.TruckPoi
 import de.ls.trucknav.nav.NavigationEngine
 import de.ls.trucknav.net.AutobahnService
 import de.ls.trucknav.net.PhotonApi
 import de.ls.trucknav.net.RoutingException
 import de.ls.trucknav.net.SpeedCameraService
 import de.ls.trucknav.net.SpeedLimitService
+import de.ls.trucknav.net.Tankpool24Service
 import de.ls.trucknav.net.TruckInfoService
 import de.ls.trucknav.net.UpdateService
 import de.ls.trucknav.net.ValhallaApi
@@ -59,6 +61,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val cameraApi = SpeedCameraService()
     private val autobahnApi = AutobahnService()
     private val truckInfoApi = TruckInfoService()
+    private val tankpoolApi = Tankpool24Service(application.filesDir)
     private val updateApi = UpdateService()
     private val tracker = LocationTracker(application)
     private val locationFilter = LocationFilter()
@@ -95,10 +98,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var lastTrafficFetchAt = 0L
     private val announcedTraffic = HashSet<String>()
 
+    // Baustellen abseits der Autobahn (OpenStreetMap, best-effort).
+    private var roadworksJob: Job? = null
+    private var lastRoadworksCenter: GeoPoint? = null
+    private var lastRoadworksFetchAt = 0L
+
     // LKW-Punkte und Durchfahrtshoehen (OpenStreetMap).
     private var poiJob: Job? = null
     private var lastPoiCenter: GeoPoint? = null
     private var lastPoiFetchAt = 0L
+    private var overpassPois: List<TruckPoi> = emptyList()
+
+    // Tankpool24-Stationen (offizielle Liste, einmalig geladen).
+    private var tankpoolJob: Job? = null
+    private var tankpoolStations: List<TruckPoi> = emptyList()
 
     private var heightJob: Job? = null
     private var lastHeightCenter: GeoPoint? = null
@@ -119,6 +132,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     cameraWarnings = settings.cameraWarnings,
                     trafficEnabled = settings.trafficWarnings,
                     truckPoisEnabled = settings.truckPois,
+                    tankpoolPoisEnabled = settings.tankpoolPois,
                     heightWarningsEnabled = settings.heightWarnings,
                     mapStyleMode = settings.mapStyleMode,
                     favorites = settings.favorites,
@@ -285,9 +299,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val shape = recentShape.toList()
         speedLimitJob = viewModelScope.launch {
             val info = speedLimitApi.lookup(baseUrl, shape) ?: return@launch
+            // Fuer LKW ueber 3,5 t gilt das strengere LKW-Limit.
+            val truck = _state.value.profile.weight > TRUCK_WEIGHT_THRESHOLD_T
+            val limit = if (truck) {
+                info.truckSpeedLimitKmh ?: info.speedLimitKmh
+            } else {
+                info.speedLimitKmh
+            }
             _state.update {
                 it.copy(
-                    speedLimitKmh = info.speedLimitKmh,
+                    speedLimitKmh = limit,
                     speedLimitRoad = info.roadName,
                 )
             }
@@ -395,25 +416,52 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // --------------------------------------------- Verkehrsmeldungen (Autobahn)
 
-    /** Laedt Verkehrsmeldungen, wenn das Fahrzeug auf einer Autobahn unterwegs ist. */
+    /**
+     * Laedt Verkehrsmeldungen passend zur befahrenen Strasse. Auf Autobahnen
+     * die Meldungen der Autobahn GmbH, sonst (best-effort) Baustellen aus
+     * OpenStreetMap, damit auch Landstrassen abgedeckt sind.
+     */
     private fun maybeFetchTraffic(point: GeoPoint, roadName: String?) {
-        if (!_state.value.trafficEnabled) return
-        val road = AutobahnService.normalizeRoad(roadName)
-        if (road == null) {
-            // Nicht auf der Autobahn: alte Meldungen verwerfen.
-            lastTrafficRoad = null
-            if (_state.value.trafficWarnings.isNotEmpty() || _state.value.trafficWarning != null) {
-                _state.update {
-                    it.copy(
-                        trafficWarnings = emptyList(),
-                        trafficWarning = null,
-                        trafficWarningDistance = 0.0,
-                    )
-                }
-            }
+        if (!_state.value.trafficEnabled) {
+            clearTraffic()
             return
         }
-        if (trafficJob?.isActive == true) return
+        val autobahn = AutobahnService.normalizeRoad(roadName)
+        if (autobahn != null) {
+            maybeFetchAutobahnTraffic(point, autobahn)
+        } else {
+            maybeFetchOsmRoadworks(point)
+        }
+    }
+
+    /** Verwirft alle Verkehrsmeldungen (Quelle gewechselt oder deaktiviert). */
+    private fun clearTraffic() {
+        lastTrafficRoad = null
+        lastRoadworksCenter = null
+        if (_state.value.trafficWarnings.isNotEmpty() || _state.value.trafficWarning != null) {
+            _state.update {
+                it.copy(
+                    trafficWarnings = emptyList(),
+                    trafficWarning = null,
+                    trafficWarningDistance = 0.0,
+                )
+            }
+        }
+    }
+
+    private fun maybeFetchAutobahnTraffic(point: GeoPoint, road: String) {
+        if (trafficJob?.isActive == true || roadworksJob?.isActive == true) return
+        // Von der Landstrasse auf die Autobahn gewechselt: OSM-Baustellen weg.
+        if (lastRoadworksCenter != null) {
+            lastRoadworksCenter = null
+            _state.update {
+                it.copy(
+                    trafficWarnings = emptyList(),
+                    trafficWarning = null,
+                    trafficWarningDistance = 0.0,
+                )
+            }
+        }
 
         val now = SystemClock.elapsedRealtime()
         val roadChanged = road != lastTrafficRoad
@@ -426,6 +474,37 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (warnings == null) {
                 // Fehlversuch: naechster Fix darf es erneut versuchen.
                 lastTrafficRoad = null
+                return@launch
+            }
+            _state.update { it.copy(trafficWarnings = warnings) }
+        }
+    }
+
+    private fun maybeFetchOsmRoadworks(point: GeoPoint) {
+        if (trafficJob?.isActive == true || roadworksJob?.isActive == true) return
+        // Von der Autobahn auf die Landstrasse gewechselt: Meldungen weg.
+        if (lastTrafficRoad != null) {
+            lastTrafficRoad = null
+            _state.update {
+                it.copy(
+                    trafficWarnings = emptyList(),
+                    trafficWarning = null,
+                    trafficWarningDistance = 0.0,
+                )
+            }
+        }
+
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastRoadworksFetchAt < ROADWORKS_MIN_INTERVAL_MS) return
+        val center = lastRoadworksCenter
+        if (center != null && distanceMeters(center, point) < ROADWORKS_REFRESH_DISTANCE_M) return
+
+        lastRoadworksFetchAt = now
+        lastRoadworksCenter = point
+        roadworksJob = viewModelScope.launch {
+            val warnings = truckInfoApi.roadworks(point)
+            if (warnings == null) {
+                lastRoadworksCenter = null
                 return@launch
             }
             _state.update { it.copy(trafficWarnings = warnings) }
@@ -457,6 +536,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 distanceToPolylineMeters(warning.point, routePoints) > TRAFFIC_ROUTE_TOLERANCE_M
             ) {
                 continue
+            }
+            // Meldungen der Gegenrichtung ausblenden, wenn die Quelle die
+            // Fahrtrichtung des betroffenen Abschnitts kennt.
+            if (bearingValid(bearing) && warning.headingDeg != null) {
+                val delta = abs(((warning.headingDeg - bearing + 540.0) % 360.0) - 180.0)
+                if (delta > TRAFFIC_OPPOSITE_ANGLE_DEG) continue
             }
             if (distance > 100.0 && bearingValid(bearing)) {
                 val toWarning = bearingDegrees(point, warning.point)
@@ -504,6 +589,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             return
         }
+        maybeLoadTankpool()
         if (poiJob?.isActive == true) return
 
         val now = SystemClock.elapsedRealtime()
@@ -517,10 +603,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val pois = truckInfoApi.pois(point)
             if (pois == null) {
                 lastPoiCenter = null
-                return@launch
+            } else {
+                overpassPois = pois
             }
-            _state.update { it.copy(truckPois = pois) }
+            publishPois(point)
         }
+    }
+
+    /** Laedt die Tankpool24-Liste einmalig und filtert sie danach lokal. */
+    private fun maybeLoadTankpool() {
+        if (!_state.value.tankpoolPoisEnabled) return
+        if (tankpoolStations.isNotEmpty() || tankpoolJob?.isActive == true) return
+        tankpoolJob = viewModelScope.launch {
+            val stations = tankpoolApi.load() ?: return@launch
+            tankpoolStations = stations
+            _state.value.location?.let { publishPois(it) }
+        }
+    }
+
+    /** Fuehrt OSM-Punkte und nahe Tankpool24-Stationen zur Anzeige zusammen. */
+    private fun publishPois(point: GeoPoint) {
+        val tankpool = if (_state.value.tankpoolPoisEnabled) {
+            tankpoolStations.filter { distanceMeters(point, it.point) <= TANKPOOL_RADIUS_M }
+        } else {
+            emptyList()
+        }
+        val merged = (overpassPois + tankpool).distinctBy { it.id }
+        _state.update { it.copy(truckPois = merged) }
     }
 
     private fun maybeFetchHeights(point: GeoPoint) {
@@ -605,6 +714,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun resetTruckInfo() {
         announcedTraffic.clear()
         announcedHeights.clear()
+        lastTrafficRoad = null
+        lastRoadworksCenter = null
         _state.update {
             it.copy(
                 trafficWarning = null,
@@ -956,6 +1067,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         cameraWarnings: Boolean,
         trafficWarnings: Boolean,
         truckPois: Boolean,
+        tankpoolPois: Boolean,
         heightWarnings: Boolean,
         mapStyleMode: MapStyleMode,
     ) {
@@ -963,6 +1075,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val wasCamera = _state.value.cameraWarnings
         val wasTraffic = _state.value.trafficEnabled
         val wasPois = _state.value.truckPoisEnabled
+        val wasTankpool = _state.value.tankpoolPoisEnabled
         val wasHeights = _state.value.heightWarningsEnabled
         _state.update {
             it.copy(
@@ -971,6 +1084,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 cameraWarnings = cameraWarnings,
                 trafficEnabled = trafficWarnings,
                 truckPoisEnabled = truckPois,
+                tankpoolPoisEnabled = tankpoolPois,
                 heightWarningsEnabled = heightWarnings,
                 mapStyleMode = mapStyleMode,
             )
@@ -982,6 +1096,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             settingsRepo.saveCameraWarnings(cameraWarnings)
             settingsRepo.saveTrafficWarnings(trafficWarnings)
             settingsRepo.saveTruckPois(truckPois)
+            settingsRepo.saveTankpoolPois(tankpoolPois)
             settingsRepo.saveHeightWarnings(heightWarnings)
             settingsRepo.saveMapStyleMode(mapStyleMode)
         }
@@ -998,27 +1113,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         when {
-            !trafficWarnings -> {
-                lastTrafficRoad = null
-                _state.update {
-                    it.copy(
-                        trafficWarnings = emptyList(),
-                        trafficWarning = null,
-                        trafficWarningDistance = 0.0,
-                    )
-                }
-            }
+            !trafficWarnings -> clearTraffic()
 
             !wasTraffic -> {
                 lastTrafficRoad = null
+                lastRoadworksCenter = null
                 lastTrafficFetchAt = 0L
+                lastRoadworksFetchAt = 0L
             }
         }
         when {
             !truckPois -> _state.update { it.copy(truckPois = emptyList()) }
-            !wasPois -> {
+
+            !wasPois || tankpoolPois != wasTankpool -> {
                 lastPoiCenter = null
                 lastPoiFetchAt = 0L
+                _state.value.location?.let { publishPois(it) }
             }
         }
         when {
@@ -1175,6 +1285,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         /** Tag/Nacht-Kartenstil regelmaessig neu pruefen (auch im Stand). */
         const val MAP_STYLE_REFRESH_MS = 5 * 60_000L
 
+        /** Ab diesem Gewicht gelten die LKW-Tempolimits (§ 3 StVO). */
+        const val TRUCK_WEIGHT_THRESHOLD_T = 3.5
+
         /** Mindestabstand zwischen zwei automatischen Neuberechnungen. */
         const val REROUTE_COOLDOWN_MS = 8_000L
 
@@ -1235,11 +1348,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         /** Oeffnungswinkel des Warnkegels in Fahrtrichtung. */
         const val TRAFFIC_AHEAD_ANGLE_DEG = 75.0
 
+        /**
+         * Ab dieser Abweichung zwischen Fahrzeugkurs und Abschnittsrichtung
+         * gilt eine Meldung als Gegenrichtung und wird ausgeblendet.
+         */
+        const val TRAFFIC_OPPOSITE_ANGLE_DEG = 100.0
+
+        /** Mindestpause zwischen zwei Baustellen-Abfragen (Landstrassen, OSM). */
+        const val ROADWORKS_MIN_INTERVAL_MS = 120_000L
+
+        /** Baustellen erst nach dieser Strecke neu laden (Landstrassen, OSM). */
+        const val ROADWORKS_REFRESH_DISTANCE_M = 3_000.0
+
         /** Mindestpause zwischen zwei LKW-Punkt-Abfragen. */
         const val POI_MIN_INTERVAL_MS = 180_000L
 
         /** LKW-Punkte erst nach dieser Strecke neu laden. */
         const val POI_REFRESH_DISTANCE_M = 4_000.0
+
+        /** Umkreis, in dem Tankpool24-Stationen angezeigt werden. */
+        const val TANKPOOL_RADIUS_M = 12_000.0
 
         /** Mindestpause zwischen zwei Hoehen-Abfragen. */
         const val HEIGHT_MIN_INTERVAL_MS = 180_000L

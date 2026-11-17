@@ -131,6 +131,12 @@ data class TrafficWarning(
     val delayMinutes: Int?,
     /** true bei Stau/stockendem Verkehr. */
     val jam: Boolean,
+    /**
+     * Fahrtrichtung des betroffenen Abschnitts in Grad (0 = Nord), falls die
+     * Quelle eine Linie liefert. Damit lassen sich Meldungen der
+     * Gegenrichtung ausblenden.
+     */
+    val headingDeg: Double? = null,
 )
 
 /** Art eines LKW-relevanten Punktes aus OpenStreetMap. */
@@ -143,6 +149,9 @@ enum class TruckPoiKind {
 
     /** Tankstelle (LKW-tauglich). */
     FUEL,
+
+    /** Tankpool24-Station (offizielle Stationsliste). */
+    TANKPOOL24,
 }
 
 /** Ein LKW-relevanter Punkt (Parkplatz, Raststaette, Tankstelle). */

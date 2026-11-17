@@ -12,6 +12,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
@@ -44,6 +45,8 @@ fun TruckMapView(
     modifier: Modifier = Modifier,
     recenterSignal: Int = 0,
     controls: MapControls = remember { MapControls() },
+    topPadding: Dp = 150.dp,
+    bottomPadding: Dp = 250.dp,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -209,15 +212,15 @@ fun TruckMapView(
     // Kamera-Folgemodus: laeuft mit und ohne Zielfuehrung und interpoliert
     // Position/Kurs weich, statt bei jedem Fix zu springen. Nach manuellem
     // Verschieben pausiert das Folgen, bis "zentrieren"/Kompass gedrueckt wird.
-    LaunchedEffect(styleReady, mapHolder.value, state.navActive) {
+    // styleGeneration in den Keys: nach einem Stilwechsel (Tag/Nacht) sind die
+    // Quellen leer, der Loop startet neu und setzt den Pfeil sofort wieder.
+    LaunchedEffect(styleReady, styleGeneration, mapHolder.value, state.navActive, topPadding, bottomPadding) {
         if (!styleReady) return@LaunchedEffect
         val map = mapHolder.value ?: return@LaunchedEffect
 
-        val topPadding = with(density) { 150.dp.roundToPx() }
-        val bottomPadding = with(density) {
-            (if (latestState.value.navActive) 190 else 250).dp.roundToPx()
-        }
-        map.setPadding(0, topPadding, 0, bottomPadding)
+        val topPaddingPx = with(density) { topPadding.roundToPx() }
+        val bottomPaddingPx = with(density) { bottomPadding.roundToPx() }
+        map.setPadding(0, topPaddingPx, 0, bottomPaddingPx)
 
         var camLat = Double.NaN
         var camLon = Double.NaN
@@ -230,6 +233,23 @@ fun TruckMapView(
         var appliedLon = Double.NaN
         var appliedBearing = 0.0
         var appliedZoom = 0.0
+        // Zuletzt geschriebene Pfeilposition/-richtung (einziger Schreiber der
+        // Symbolquelle, damit nichts doppelt gesetzt wird und der Pfeil ruhig
+        // bleibt).
+        var userLat = Double.NaN
+        var userLon = Double.NaN
+        var userBearing = Float.NaN
+
+        fun writeUserMarker(lat: Double, lon: Double, bearing: Float) {
+            val samePlace = !userLat.isNaN() &&
+                distanceMeters(GeoPoint(userLat, userLon), GeoPoint(lat, lon)) < 0.05
+            val sameBearing = !userBearing.isNaN() && abs(userBearing - bearing) < 0.2f
+            if (samePlace && sameBearing) return
+            userLat = lat
+            userLon = lon
+            userBearing = bearing
+            map.style?.let { style -> MapLayers.setUserPosition(style, lat, lon, bearing) }
+        }
 
         while (isActive) {
             withFrameNanos { frameNanos ->
@@ -248,10 +268,12 @@ fun TruckMapView(
 
                 if (!followEnabled.value) {
                     // Nach manuellem Verschieben nicht zurueckspringen; erst
-                    // "zentrieren"/Kompass nimmt das Folgen wieder auf.
+                    // "zentrieren"/Kompass nimmt das Folgen wieder auf. Den
+                    // Pfeil aber weiter an der echten Position mitfuehren.
                     camLat = Double.NaN
                     appliedLat = Double.NaN
                     lastFrameNanos = 0L
+                    writeUserMarker(target.lat, target.lon, st.bearing)
                     return@withFrameNanos
                 }
 
@@ -302,13 +324,11 @@ fun TruckMapView(
                         appliedBearing = camBearing
                         appliedZoom = camZoom
                         MapCamera.followPosition(map, camLat, camLon, camBearing, camZoom, camTilt)
-                        // Pfeil an derselben interpolierten Stelle zeichnen wie
-                        // die Kamera. Dadurch bleibt er ruhig im Bildmittelpunkt
-                        // statt einmal pro GPS-Fix nach vorn zu springen.
-                        map.style?.let { style ->
-                            MapLayers.setUserPosition(style, camLat, camLon, st.bearing)
-                        }
                     }
+                    // Pfeil an derselben interpolierten Stelle zeichnen wie
+                    // die Kamera. Dadurch bleibt er ruhig im Bildmittelpunkt
+                    // statt einmal pro GPS-Fix nach vorn zu springen.
+                    writeUserMarker(camLat, camLon, st.bearing)
                 }
             }
         }
@@ -323,12 +343,14 @@ fun TruckMapView(
         state.navActive,
         state.route,
         state.location,
+        topPadding,
+        bottomPadding,
     ) {
         if (!styleReady || state.navActive) return@LaunchedEffect
         val map = mapHolder.value ?: return@LaunchedEffect
 
-        val topPadding = with(density) { 150.dp.roundToPx() }
-        val bottomPadding = with(density) { 250.dp.roundToPx() }
+        val topPaddingPx = with(density) { topPadding.roundToPx() }
+        val bottomPaddingPx = with(density) { bottomPadding.roundToPx() }
         val sidePadding = with(density) { 24.dp.roundToPx() }
 
         val route = state.route
@@ -336,7 +358,7 @@ fun TruckMapView(
             lastFittedRoute = route
             centeredOnce = true
             followEnabled.value = false
-            map.setPadding(sidePadding, topPadding, sidePadding, bottomPadding)
+            map.setPadding(sidePadding, topPaddingPx, sidePadding, bottomPaddingPx)
             MapCamera.fitRoute(map, route)
         } else if (state.location != null && !centeredOnce) {
             centeredOnce = true
@@ -352,6 +374,15 @@ fun TruckMapView(
         if (recenterSignal <= 0) return@LaunchedEffect
         // Folgen wieder aufnehmen; der Frame-Loop richtet die Kamera aus.
         followEnabled.value = true
+    }
+
+    // Wird das Ziel verworfen (z. B. nach dem Anzeigen einer Route), folgt die
+    // Karte im freien Fahrmodus wieder der eigenen Position. Zuvor hatte das
+    // Anzeigen der Route das Folgen pausiert.
+    LaunchedEffect(state.destination) {
+        if (state.destination == null && !state.navActive) {
+            followEnabled.value = true
+        }
     }
 
     // Beim Start der Navigation mit Fahrtrichtung und neutralem Zoom beginnen.

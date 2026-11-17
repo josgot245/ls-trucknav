@@ -93,8 +93,40 @@ class LaneParsingTest {
     }
 
     @Test
-    fun exitNumberImpliesHighway() {
+    fun exitNumberAloneIsNotHighway() {
+        // Nummerierte Knotenpunkte gibt es auch an Bundes-/Land-/Kreisstrassen:
+        // das Schild bleibt dann gelb/schwarz.
         val maneuver = obj("""{"sign":{"exit_number_elements":[{"text":"22"}]}}""")
+        assertFalse(parseManeuverSign(maneuver)!!.highway)
+    }
+
+    @Test
+    fun bundesstrasseWithExitNumberIsNotHighway() {
+        val maneuver = obj(
+            """
+            {"street_names":["B 27"],"sign":{
+              "exit_number_elements":[{"text":"4"}],
+              "exit_toward_elements":[{"text":"Tübingen"}]
+            }}
+            """.trimIndent()
+        )
+        val sign = parseManeuverSign(maneuver)!!
+        assertEquals("4", sign.exitNumber)
+        assertFalse(sign.highway)
+    }
+
+    @Test
+    fun autobahnBranchWinsOverHighwayFlag() {
+        // Autobahn-Ausfahrt mit Ziel auf einer Bundesstrasse: das Schild an der
+        // Autobahn bleibt blau, auch wenn die Richtung eine B-Nummer nennt.
+        val maneuver = obj(
+            """
+            {"highway":true,"sign":{
+              "exit_branch_elements":[{"text":"B 27"}],
+              "exit_toward_elements":[{"text":"Tübingen"}]
+            }}
+            """.trimIndent()
+        )
         assertTrue(parseManeuverSign(maneuver)!!.highway)
     }
 

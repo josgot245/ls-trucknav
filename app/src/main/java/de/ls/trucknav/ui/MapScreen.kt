@@ -7,6 +7,8 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -177,12 +179,24 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
         } else {
             Modifier
         }
+        // Im Querformat bzw. auf niedrigen Bildschirmen bleibt weniger Hoehe:
+        // kleinere Karten-Abstaende und scrollbare Bedienkarten, damit sich die
+        // Elemente nicht ueberlagern.
+        val compactHeight = maxHeight < COMPACT_HEIGHT_MIN
+        val mapTopPadding = if (compactHeight) 96.dp else 150.dp
+        val mapBottomPadding = when {
+            compactHeight -> 140.dp
+            state.navActive -> 190.dp
+            else -> 250.dp
+        }
 
         TruckMapView(
             state = state,
             modifier = Modifier.fillMaxSize(),
             recenterSignal = recenterSignal,
             controls = mapControls,
+            topPadding = mapTopPadding,
+            bottomPadding = mapBottomPadding,
         )
 
         Text(
@@ -192,7 +206,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
-                .padding(top = 78.dp, end = 18.dp),
+                .padding(top = if (compactHeight) 52.dp else 78.dp, end = 18.dp),
         )
 
         if (!state.navActive) {
@@ -213,6 +227,15 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     .fillMaxWidth()
                     .statusBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .then(
+                        if (compactHeight) {
+                            Modifier
+                                .heightIn(max = maxHeight * 0.5f)
+                                .verticalScroll(rememberScrollState())
+                        } else {
+                            Modifier
+                        }
+                    )
             ) {
                 InstructionCard(state)
                 val nav = state.nav
@@ -238,6 +261,15 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 .fillMaxWidth()
                 .navigationBarsPadding()
                 .padding(12.dp)
+                .then(
+                    if (compactHeight) {
+                        Modifier
+                            .heightIn(max = maxHeight * 0.6f)
+                            .verticalScroll(rememberScrollState())
+                    } else {
+                        Modifier
+                    }
+                )
         ) {
             state.heightWarning?.let { restriction ->
                 HeightWarningBanner(
@@ -325,7 +357,11 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 220.dp, start = 16.dp, end = 16.dp),
+                .padding(
+                    bottom = if (compactHeight) 150.dp else 220.dp,
+                    start = 16.dp,
+                    end = 16.dp,
+                ),
         )
         if (state.arrived && state.navActive) {
             ArrivalOverlay(
@@ -356,6 +392,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                         cameraWarnings = options.cameraWarnings,
                         trafficWarnings = options.trafficWarnings,
                         truckPois = options.truckPois,
+                        tankpoolPois = options.tankpoolPois,
                         heightWarnings = options.heightWarnings,
                         mapStyleMode = options.mapStyleMode,
                     )
@@ -1370,6 +1407,12 @@ private val LARGE_SCREEN_MIN_WIDTH = 600.dp
 
 /** Maximale Breite der schwebenden Karten auf grossen Bildschirmen. */
 private val PANEL_MAX_WIDTH = 460.dp
+
+/**
+ * Unter dieser Hoehe (typisch Querformat auf dem Handy) wird das Layout
+ * kompakter: kleinere Karten-Abstaende und scrollbare Bedienkarten.
+ */
+private val COMPACT_HEIGHT_MIN = 520.dp
 
 /** Ab dieser Entfernung zum Manoever wird die Spurführung eingeblendet. */
 private const val LANE_GUIDE_DISTANCE_M = 800.0

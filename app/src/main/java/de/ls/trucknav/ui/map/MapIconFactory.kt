@@ -30,6 +30,7 @@ object MapIconFactory {
     const val PARKING = "ls-icon-parking"
     const val REST = "ls-icon-rest"
     const val FUEL = "ls-icon-fuel"
+    const val TANKPOOL24 = "ls-icon-tankpool24"
     const val HEIGHT = "ls-icon-height"
 
     private const val WHITE = 0xFFFFFFFF.toInt()
@@ -37,6 +38,7 @@ object MapIconFactory {
     private const val POI_BLUE = 0xFF3DA5FF.toInt()
     private const val POI_GREEN = 0xFF37C871.toInt()
     private const val POI_PURPLE = 0xFFB06BFF.toInt()
+    private const val TANKPOOL_RED = 0xFFE2001A.toInt()
     private const val AMBER = 0xFFFFC246.toInt()
     private const val ORANGE = 0xFFFF8A3D.toInt()
     private const val RED = 0xFFE02B36.toInt()
@@ -62,7 +64,8 @@ object MapIconFactory {
         icon(ROADWORKS) { c, s -> badge(c, s, ORANGE, WHITE); exclamation(c, s, INK) }
         icon(PARKING) { c, s -> badge(c, s, POI_BLUE, WHITE); letter(c, s, "P", WHITE) }
         icon(REST) { c, s -> badge(c, s, POI_GREEN, WHITE); letter(c, s, "R", WHITE) }
-        icon(FUEL) { c, s -> badge(c, s, POI_PURPLE, WHITE); letter(c, s, "T", WHITE) }
+        icon(FUEL) { c, s -> badge(c, s, POI_PURPLE, WHITE); pump(c, s, WHITE, POI_PURPLE) }
+        icon(TANKPOOL24) { c, s -> badge(c, s, TANKPOOL_RED, WHITE); pump(c, s, WHITE, TANKPOOL_RED) }
         icon(HEIGHT) { c, s -> badge(c, s, WHITE, RED); letter(c, s, "m", INK) }
     }
 
@@ -147,5 +150,25 @@ object MapIconFactory {
             close()
         }
         c.drawPath(cloth, paint)
+    }
+
+    /**
+     * Zapfsaeule (Tankstelle). [body] ist die Farbe der Saeule, [cutout] die
+     * Farbe des Hintergrunds, damit das Fenster wie ausgespart wirkt.
+     */
+    private fun pump(c: Canvas, s: Float, body: Int, cutout: Int) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = body }
+        c.drawRoundRect(RectF(s * 0.28f, s * 0.26f, s * 0.60f, s * 0.76f), s * 0.05f, s * 0.05f, paint)
+        val window = Paint(Paint.ANTI_ALIAS_FLAG).apply { this.color = cutout }
+        c.drawRoundRect(RectF(s * 0.34f, s * 0.33f, s * 0.48f, s * 0.44f), s * 0.02f, s * 0.02f, window)
+        c.drawRoundRect(RectF(s * 0.34f, s * 0.54f, s * 0.54f, s * 0.60f), s * 0.02f, s * 0.02f, window)
+        val hose = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            this.color = body
+            style = Paint.Style.STROKE
+            strokeWidth = s * 0.06f
+            strokeCap = Paint.Cap.ROUND
+        }
+        c.drawLine(s * 0.64f, s * 0.40f, s * 0.64f, s * 0.62f, hose)
+        c.drawLine(s * 0.60f, s * 0.62f, s * 0.70f, s * 0.62f, hose)
     }
 }

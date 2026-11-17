@@ -22,6 +22,7 @@ data class AppSettings(
     val cameraWarnings: Boolean = true,
     val trafficWarnings: Boolean = true,
     val truckPois: Boolean = false,
+    val tankpoolPois: Boolean = false,
     val heightWarnings: Boolean = true,
     val mapStyleMode: MapStyleMode = MapStyleMode.AUTO,
     val favorites: List<Place> = emptyList(),
@@ -47,6 +48,7 @@ class SettingsRepository(private val context: Context) {
         val CAMERA_WARNINGS = booleanPreferencesKey("camera_warnings")
         val TRAFFIC_WARNINGS = booleanPreferencesKey("traffic_warnings")
         val TRUCK_POIS = booleanPreferencesKey("truck_pois")
+        val TANKPOOL_POIS = booleanPreferencesKey("tankpool_pois")
         val HEIGHT_WARNINGS = booleanPreferencesKey("height_warnings")
         val MAP_STYLE_MODE = stringPreferencesKey("map_style_mode")
         val FAVORITES = stringPreferencesKey("favorites")
@@ -74,6 +76,7 @@ class SettingsRepository(private val context: Context) {
             cameraWarnings = p[Keys.CAMERA_WARNINGS] ?: true,
             trafficWarnings = p[Keys.TRAFFIC_WARNINGS] ?: true,
             truckPois = p[Keys.TRUCK_POIS] ?: false,
+            tankpoolPois = p[Keys.TANKPOOL_POIS] ?: false,
             heightWarnings = p[Keys.HEIGHT_WARNINGS] ?: true,
             mapStyleMode = p[Keys.MAP_STYLE_MODE]
                 ?.let { name -> MapStyleMode.entries.firstOrNull { it.name == name } }
@@ -120,6 +123,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveTruckPois(enabled: Boolean) {
         context.settingsStore.edit { p -> p[Keys.TRUCK_POIS] = enabled }
+    }
+
+    suspend fun saveTankpoolPois(enabled: Boolean) {
+        context.settingsStore.edit { p -> p[Keys.TANKPOOL_POIS] = enabled }
     }
 
     suspend fun saveHeightWarnings(enabled: Boolean) {

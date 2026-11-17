@@ -41,23 +41,24 @@ internal fun parseManeuverSign(maneuver: JsonObject): JunctionSign? {
         branch = branch,
         toward = toward,
         name = name,
-        highway = isHighwaySign(maneuver, exitNumber, branch),
+        highway = isHighwaySign(maneuver, branch),
     )
 }
 
 /**
  * Erkennt, ob eine Beschilderung zu einer Autobahn gehoert (blaues Schild).
- * Grundlage sind Valhallas `highway`-Flag am Manoever, die Ausfahrtsnummer
- * sowie Autobahn-Kennungen ("A 3") in den Strassennummern oder Strassennamen.
+ * Grundlage sind Valhallas `highway`-Flag am Manoever sowie Autobahn-Kennungen
+ * ("A 3") in den Strassennummern der Richtung oder den Strassennamen.
  * Alles andere (Bundes-, Land- und Kreisstrassen) ist gelb/schwarz.
+ *
+ * Eine reine Ausfahrtsnummer macht das Schild bewusst *nicht* blau: Auch
+ * Bundes-, Land- und Kreisstrassen koennen nummerierte Knotenpunkte haben.
  */
 private fun isHighwaySign(
     maneuver: JsonObject,
-    exitNumber: String?,
     branch: List<String>,
 ): Boolean {
     if (maneuver.booleanOrNull("highway") == true) return true
-    if (exitNumber != null) return true
     if (branch.any { isAutobahnNumber(it) }) return true
     val streets = maneuver["street_names"] as? JsonArray ?: return false
     return streets.any { element ->

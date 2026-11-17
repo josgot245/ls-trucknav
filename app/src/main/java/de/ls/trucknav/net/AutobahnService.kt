@@ -3,12 +3,18 @@ package de.ls.trucknav.net
 import de.ls.trucknav.model.GeoPoint
 import de.ls.trucknav.model.TrafficKind
 import de.ls.trucknav.model.TrafficWarning
+import de.ls.trucknav.util.bearingDegrees
+import de.ls.trucknav.util.distanceMeters
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import okhttp3.OkHttpClient
@@ -103,8 +109,31 @@ class AutobahnService(private val client: OkHttpClient = Http.client) {
                     averageSpeedKmh = obj.intOrNull("averageSpeed"),
                     delayMinutes = obj.intOrNull("delayTimeValue"),
                     jam = jam,
+                    headingDeg = headingOf(obj),
                 )
             }
+        }
+
+        /**
+         * Fahrtrichtung des betroffenen Abschnitts aus der GeoJSON-Linie der
+         * Meldung. Nur bei ausreichender Laenge, sonst ist die Richtung zu
+         * unzuverlaessig.
+         */
+        private fun headingOf(obj: JsonObject): Double? {
+            val coords = obj["geometry"]?.jsonObject?.get("coordinates")?.jsonArray ?: return null
+            val points = coords.mapNotNull { element ->
+                val pair = element as? JsonArray ?: return@mapNotNull null
+                val lon = (pair.getOrNull(0) as? JsonPrimitive)
+                    ?.contentOrNull?.toDoubleOrNull() ?: return@mapNotNull null
+                val lat = (pair.getOrNull(1) as? JsonPrimitive)
+                    ?.contentOrNull?.toDoubleOrNull() ?: return@mapNotNull null
+                GeoPoint(lat, lon)
+            }
+            if (points.size < 2) return null
+            val from = points.first()
+            val to = points.last()
+            if (distanceMeters(from, to) < 25.0) return null
+            return bearingDegrees(from, to)
         }
     }
 }

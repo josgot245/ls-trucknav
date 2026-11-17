@@ -78,6 +78,38 @@ class SpeedInfoTest {
     }
 
     @Test
+    fun truckLimitUsesMotorwayAndRuralCaps() {
+        // Autobahn ohne allgemeines Limit -> 80 km/h fuer LKW.
+        assertEquals(80, SpeedLimitService.truckLimit(null, "motorway"))
+        // Autobahn mit 120 fuer PKW -> 80 fuer LKW.
+        assertEquals(80, SpeedLimitService.truckLimit(120, "motorway"))
+        // Landstrasse mit 100 fuer PKW -> 60 fuer LKW.
+        assertEquals(60, SpeedLimitService.truckLimit(100, "primary"))
+        // Innerorts 50 -> bleibt 50 (niedriger als die 60).
+        assertEquals(50, SpeedLimitService.truckLimit(50, "residential"))
+        // Tempo-30-Zone bleibt 30.
+        assertEquals(30, SpeedLimitService.truckLimit(30, "residential"))
+        // Unbekannte Klasse ohne Limit -> konservativ 60.
+        assertEquals(60, SpeedLimitService.truckLimit(null, null))
+    }
+
+    @Test
+    fun readsTruckLimitForMatchedEdge() {
+        val body = """
+            {
+              "edges": [
+                { "speed_limit": 100, "road_class": "motorway", "names": ["A 7"] }
+              ],
+              "matched_points": [ { "edge_index": 0 } ]
+            }
+        """.trimIndent()
+
+        val info = SpeedLimitService.parseRoadInfo(body)
+        assertEquals(100, info?.speedLimitKmh)
+        assertEquals(80, info?.truckSpeedLimitKmh)
+    }
+
+    @Test
     fun parsesCamerasAndMaxspeed() {
         val body = """
             {

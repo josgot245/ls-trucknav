@@ -71,6 +71,7 @@ fun SettingsSheet(
     var cameraWarnings by remember { mutableStateOf(state.cameraWarnings) }
     var trafficWarnings by remember { mutableStateOf(state.trafficEnabled) }
     var truckPois by remember { mutableStateOf(state.truckPoisEnabled) }
+    var tankpoolPois by remember { mutableStateOf(state.tankpoolPoisEnabled) }
     var heightWarnings by remember { mutableStateOf(state.heightWarningsEnabled) }
     var mapStyleMode by remember { mutableStateOf(state.mapStyleMode) }
 
@@ -196,6 +197,12 @@ fun SettingsSheet(
                 onCheckedChange = { truckPois = it },
             )
             SwitchRow(
+                title = "Tankpool24-Stationen",
+                subtitle = "Offizielle Tankpool24-Liste (einmalig ca. 1 MB, danach offline)",
+                checked = tankpoolPois,
+                onCheckedChange = { tankpoolPois = it },
+            )
+            SwitchRow(
                 title = "Durchfahrtshöhen-Warnung",
                 subtitle = "Warnung vor zu niedrigen Brücken/Unterführungen (OpenStreetMap)",
                 checked = heightWarnings,
@@ -252,6 +259,7 @@ fun SettingsSheet(
                             cameraWarnings = cameraWarnings,
                             trafficWarnings = trafficWarnings,
                             truckPois = truckPois,
+                            tankpoolPois = tankpoolPois,
                             heightWarnings = heightWarnings,
                             mapStyleMode = mapStyleMode,
                         ),

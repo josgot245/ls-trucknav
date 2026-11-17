@@ -51,6 +51,9 @@ data class UiState(
     val truckPoisEnabled: Boolean = false,
     val truckPois: List<TruckPoi> = emptyList(),
 
+    /** Tankpool24-Stationen (offizielle Liste, zusaetzlich zu den OSM-Punkten). */
+    val tankpoolPoisEnabled: Boolean = false,
+
     /** Durchfahrtshoehen-Warnungen aus OpenStreetMap. */
     val heightWarningsEnabled: Boolean = true,
     val heightRestrictions: List<HeightRestriction> = emptyList(),
@@ -113,6 +116,7 @@ data class AppOptions(
     val cameraWarnings: Boolean,
     val trafficWarnings: Boolean,
     val truckPois: Boolean,
+    val tankpoolPois: Boolean,
     val heightWarnings: Boolean,
     val mapStyleMode: MapStyleMode,
 )
