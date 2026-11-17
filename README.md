@@ -3,7 +3,7 @@
 Firmeninterne LKW-Navigations-App für Android. Karte, Adresssuche, LKW-Routing
 mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
-**Version:** 0.6.2
+**Version:** 0.6.3
 
 ---
 
@@ -20,10 +20,11 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   die Modus-Anzeige in der Kopfzeile): Im PKW-Modus wird wie ein Auto geroutet
   und es gelten die allgemeinen Tempolimits
 - **Routenvorschläge:** Bei der Zieleingabe liefert die App bis zu drei Routen
-  zur Auswahl – mit Länge und Dauer zum Vergleichen. Die Liste lässt sich nach
-  **Schnellste** oder **Kürzeste** sortieren. Die aktive Route erscheint
-  dunkelrot, die Ausweichrouten hellrot auf der Karte; ein Tipp auf einen
-  Vorschlag wechselt die Route
+  zur Auswahl – mit Länge und Dauer zum Vergleichen. Die Liste ist fest
+  sortiert: zuerst die **Schnellste**, danach die **Kürzeste** (falls
+  abweichend) und anschließend die übrigen als **Alternative**. Die aktive
+  Route erscheint dunkelrot, die Ausweichrouten hellrot auf der Karte; ein Tipp
+  auf einen Vorschlag wechselt die Route
 - **Navigation** mit:
   - Kartenverfolgung in Fahrtrichtung – auch ohne laufende Navigation; der
     Kompass wechselt zwischen Fahrtrichtung und Norden
@@ -49,7 +50,16 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   werden Baustellen ergänzend aus OpenStreetMap geladen (best-effort)
 - **LKW-POIs** (abschaltbar): LKW-Parkplätze, Raststätten/Autohöfe und
   LKW-taugliche Tankstellen aus OpenStreetMap. Optional zusätzlich die
-  offiziellen **Tankpool24**-Stationen (einmalig geladen, danach offline)
+  offiziellen **Tankpool24**-Stationen (einmalig geladen, danach offline):
+  eigener Marker mit dem Tankpool24-Logo, Stationsname als Beschriftung
+  unter dem Marker (ab Zoomstufe 12) und Info-Karte mit Name, Anschrift und
+  Knopf **„Route dorthin"** beim Antippen
+- **Tankpool24-Liste:** Die Tankpool24-Schaltfläche am rechten Kartenrand
+  (unter Kompass und Zoom) öffnet ein Fenster mit allen Tankpool24-Stationen
+  in der Nähe – ohne aktive Zielführung im Umkreis von **100 km**, mit aktiver
+  Zielführung alle Stationen **entlang der Route (15 km)**, nach Entfernung
+  bzw. in Fahrtrichtung sortiert. Ein Tipp auf eine Station plant direkt eine
+  Route dorthin
 - **Durchfahrtshöhen-Warnung** (standardmäßig an): Brücken und Tunnel mit
   lichter Höhe aus OpenStreetMap; Warnung, wenn die eingestellte Fahrzeughöhe
   nicht passt. Gewarnt wird nur auf der eigenen Route – nicht auf parallel
@@ -61,7 +71,8 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 - **Tag/Nacht-Karte**: automatischer Wechsel nach Sonnenauf-/untergang am
   Standort, manuell übersteuerbar (Automatisch/Hell/Dunkel); im dunklen Design
   sind die Straßen hervorgehoben
-- **Bedienelemente** in der Firmenfarbe Rot (Zoom, Kompass, Zentrieren, Sprache)
+- **Bedienelemente** in der Firmenfarbe Rot (Zoom, Kompass, Zentrieren,
+  Sprache, Tankpool24)
 - **PKW-Fallback**, wenn keine LKW-Route gefunden wird (abschaltbar)
 - **In-App-Update**: Die App prüft beim Start (und auf Wunsch manuell in den
   Einstellungen) die GitHub-Releases des Projekts. Ist eine neuere Version
@@ -73,7 +84,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
 ## Installation auf dem Handy
 
-1. `LS-TruckNav-0.6.2.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
+1. `LS-TruckNav-0.6.3.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
 2. Datei antippen → „Installieren“. Falls gefragt: „Unbekannte Quellen“ für den
    Dateimanager erlauben.
 3. Beim ersten Start **Standortberechtigung** erteilen.
@@ -81,7 +92,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 Alternativ per USB-Debugging:
 
 ```powershell
-adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.6.2.apk"
+adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.6.3.apk"
 ```
 
 Voraussetzung: Android 10 oder neuer.
@@ -99,9 +110,11 @@ Voraussetzung: Android 10 oder neuer.
 | Navigation starten | „Navigation starten“ in der Routenkarte |
 | Sprache an/aus | Lautsprecher-Symbol unten |
 | Karte zentrieren | Zielscheiben-Symbol unten |
+| Tankpool24-Stationen in der Nähe | Tankpool24-Symbol am rechten Rand (unter Kompass/Zoom) |
 | Navigation beenden | „Navigation beenden“ |
 
-Während der Navigation bleibt der Bildschirm an.
+Während die App geöffnet ist, bleibt der Bildschirm an – nicht nur während der
+Navigation.
 
 ### App aktualisieren
 
@@ -179,7 +192,7 @@ Während der Navigation bleibt der Bildschirm an.
 | Baustein | Umsetzung |
 |---|---|
 | Sprache | Kotlin, Jetpack Compose (Material 3) |
-| Karte | MapLibre Native Android 11.5.2 |
+| Karte | MapLibre Native Android 11.6.1 |
 | Kartenstil | OpenFreeMap „Liberty" (hell) / „Dark" (dunkel), Vektor-Tiles, kein Key |
 | Suche | Photon (Komoot), deutschsprachig |
 | Routing | Valhalla, `costing=truck` mit `costing_options` |
@@ -232,7 +245,7 @@ Oder einfach:
 ```
 
 Das Skript baut die Release-Variante (mit Debug-Key signiert, intern
-installierbar) und kopiert sie als `LS-TruckNav-0.6.2.apk` ins Projektverzeichnis.
+installierbar) und kopiert sie als `LS-TruckNav-0.6.3.apk` ins Projektverzeichnis.
 
 ### App-Icon
 

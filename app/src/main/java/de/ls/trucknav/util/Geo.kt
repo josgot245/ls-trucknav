@@ -44,37 +44,51 @@ fun cumulativeDistances(points: List<GeoPoint>): DoubleArray {
  * Kuerzester Abstand eines Punktes zu einer Punktkette (Polylinie) in Metern.
  * Reicht fuer Abstaende im Bereich weniger hundert Meter.
  */
-fun distanceToPolylineMeters(point: GeoPoint, points: List<GeoPoint>): Double {
-    if (points.isEmpty()) return Double.MAX_VALUE
-    if (points.size == 1) return distanceMeters(point, points[0])
+fun distanceToPolylineMeters(point: GeoPoint, points: List<GeoPoint>): Double =
+    distanceAndAlongToPolylineMeters(point, points).first
 
-    var best = Double.MAX_VALUE
+/**
+ * Abstand eines Punktes zu einer Punktkette (Polylinie) in Metern sowie die
+ * Strecke vom Anfang der Kette bis zum naechsten Punkt darauf.
+ *
+ * Der zweite Wert eignet sich, um Stationen entlang einer Route zu sortieren
+ * (in Fahrtrichtung zuerst). Reicht fuer Abstaende im Bereich weniger hundert
+ * Meter; als Streckenmass ist die Naeherung ueber die kumulierten Abstaende
+ * ausreichend.
+ */
+fun distanceAndAlongToPolylineMeters(point: GeoPoint, points: List<GeoPoint>): Pair<Double, Double> {
+    if (points.isEmpty()) return Double.MAX_VALUE to 0.0
+    if (points.size == 1) return distanceMeters(point, points[0]) to 0.0
+
+    val cumulative = cumulativeDistances(points)
+    var bestDistance = Double.MAX_VALUE
+    var bestAlong = 0.0
     for (i in 0 until points.size - 1) {
-        val distance = distanceToSegmentMeters(point, points[i], points[i + 1])
-        if (distance < best) best = distance
+        val a = points[i]
+        val b = points[i + 1]
+        val latRad = Math.toRadians(a.lat)
+        val px = (point.lon - a.lon) * cos(latRad)
+        val py = point.lat - a.lat
+        val bx = (b.lon - a.lon) * cos(latRad)
+        val by = b.lat - a.lat
+
+        val lengthSquared = bx * bx + by * by
+        val t = if (lengthSquared == 0.0) {
+            0.0
+        } else {
+            ((px * bx + py * by) / lengthSquared).coerceIn(0.0, 1.0)
+        }
+
+        val dx = px - t * bx
+        val dy = py - t * by
+        // 1 Grad Breite entspricht naeherungsweise 111,32 km.
+        val distance = sqrt(dx * dx + dy * dy) * 111_320.0
+        if (distance < bestDistance) {
+            bestDistance = distance
+            bestAlong = cumulative[i] + t * distanceMeters(a, b)
+        }
     }
-    return best
-}
-
-/** Abstand zu einem Liniensegment (lokale ebene Naeherung). */
-private fun distanceToSegmentMeters(point: GeoPoint, a: GeoPoint, b: GeoPoint): Double {
-    val latRad = Math.toRadians(a.lat)
-    val px = (point.lon - a.lon) * cos(latRad)
-    val py = point.lat - a.lat
-    val bx = (b.lon - a.lon) * cos(latRad)
-    val by = b.lat - a.lat
-
-    val lengthSquared = bx * bx + by * by
-    val t = if (lengthSquared == 0.0) {
-        0.0
-    } else {
-        ((px * bx + py * by) / lengthSquared).coerceIn(0.0, 1.0)
-    }
-
-    val dx = px - t * bx
-    val dy = py - t * by
-    // 1 Grad Breite entspricht naeherungsweise 111,32 km.
-    return sqrt(dx * dx + dy * dy) * 111_320.0
+    return bestDistance to bestAlong
 }
 
 

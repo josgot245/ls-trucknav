@@ -13,8 +13,8 @@ android {
         applicationId = "de.ls.trucknav"
         minSdk = 29
         targetSdk = 35
-        versionCode = 9
-        versionName = "0.6.2"
+        versionCode = 10
+        versionName = "0.6.3"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -75,7 +75,10 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
-    implementation("org.maplibre.gl:android-sdk:11.5.2")
+    // 11.6.1 behebt einen MapLibre-Fehler, bei dem Symbol-Ebenen mit
+    // "icon-allow-overlap"/"icon-ignore-placement" beim Drehen der Karte
+    // verschwinden (maplibre-native#2788) – betraf den eigenen Positionspfeil.
+    implementation("org.maplibre.gl:android-sdk:11.6.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")

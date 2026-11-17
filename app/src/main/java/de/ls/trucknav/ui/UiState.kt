@@ -2,7 +2,6 @@ package de.ls.trucknav.ui
 
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.MapStyles
-import de.ls.trucknav.data.RouteSort
 import de.ls.trucknav.data.SettingsRepository
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.data.VehicleMode
@@ -60,6 +59,18 @@ data class UiState(
     /** Tankpool24-Stationen (offizielle Liste, zusaetzlich zu den OSM-Punkten). */
     val tankpoolPoisEnabled: Boolean = false,
 
+    /** Eintraege der Tankpool24-Liste (Umkreis bzw. entlang der Route). */
+    val tankpoolEntries: List<TankpoolEntry> = emptyList(),
+
+    /** Tankpool24-Listenfenster ist geoeffnet. */
+    val showTankpoolList: Boolean = false,
+
+    /** Tankpool24-Liste wird gerade geladen bzw. berechnet. */
+    val tankpoolLoading: Boolean = false,
+
+    /** Angetippter LKW-Punkt (Info-Karte mit Name/Adresse). */
+    val selectedPoi: TruckPoi? = null,
+
     /** Durchfahrtshoehen-Warnungen aus OpenStreetMap. */
     val heightWarningsEnabled: Boolean = true,
     val heightRestrictions: List<HeightRestriction> = emptyList(),
@@ -84,9 +95,6 @@ data class UiState(
 
     /** Index der ausgewaehlten Route in [routeOptions]. */
     val selectedRouteIndex: Int = 0,
-
-    /** Sortierung der Vorschlagsliste (schnellste oder kuerzeste zuerst). */
-    val routeSort: RouteSort = RouteSort.DURATION,
 
     val routing: Boolean = false,
     val routeError: String? = null,

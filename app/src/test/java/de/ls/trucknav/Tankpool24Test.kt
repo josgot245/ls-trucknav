@@ -12,67 +12,93 @@ import java.util.zip.ZipOutputStream
 
 class Tankpool24Test {
 
-    @Test
-    fun parsesGarminCsvLines() {
-        val csv = """
-            9.993681,53.551084,"101 - Hamburg",,
-            8.682127,50.110924,"7 - Frankfurt am Main",,
-        """.trimIndent()
+    private val kml = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <kml xmlns="http://www.opengis.net/kml/2.2">
+        <Document>
+          <name>kml_test.kml</name>
+          <Placemark>
+            <name>100301 - Nordhausen</name>
+            <description><![CDATA[&nbsp;<BR>Staack Pooltankstellen GmbH<BR>&nbsp;<BR>Südstraße 10<BR>99734 Nordhausen<BR>- - Thüringen - Deutschland<BR>&nbsp;<BR>GEO-Daten geprüft<BR>Hotline: 00800 - 317 617 00<BR>&nbsp;]]></description>
+            <Point><coordinates>10.79314,51.48216,0</coordinates></Point>
+          </Placemark>
+          <Placemark>
+            <name>101001 - Winsen an der Luhe</name>
+            <description><![CDATA[<img src='https://example.org/1.jpg' width='300px;'><BR>&nbsp;<BR>tankpool24 international GmbH<BR>Otto-Hahn-Straße 57<BR>21423 Winsen<BR>Harburg - Niedersachsen - Deutschland<BR>&nbsp;<BR>Produkte:<BR>- Diesel<BR>&nbsp;]]></description>
+            <Point><coordinates>10.22936,53.34037,0</coordinates></Point>
+          </Placemark>
+        </Document>
+        </kml>
+    """.trimIndent()
 
-        val pois = Tankpool24Service.parseCsv(csv)
+    @Test
+    fun parsesKmlPlacemarks() {
+        val pois = Tankpool24Service.parseKml(kml)
 
         assertEquals(2, pois.size)
         val first = pois[0]
-        assertEquals(101L, first.id)
+        assertEquals(100301L, first.id)
         assertEquals(TruckPoiKind.TANKPOOL24, first.kind)
-        assertEquals("Tankpool24 Hamburg", first.name)
-        assertEquals(53.551084, first.point.lat, 1e-6)
-        assertEquals(9.993681, first.point.lon, 1e-6)
+        assertEquals("Tankpool24 Nordhausen", first.name)
+        assertEquals(51.48216, first.point.lat, 1e-6)
+        assertEquals(10.79314, first.point.lon, 1e-6)
+        assertEquals("Südstraße 10, 99734 Nordhausen", first.address)
+    }
+
+    @Test
+    fun addressSkipsImageAndOperatorLines() {
+        val second = Tankpool24Service.parseKml(kml)[1]
+        assertEquals("Tankpool24 Winsen an der Luhe", second.name)
+        assertEquals("Otto-Hahn-Straße 57, 21423 Winsen", second.address)
     }
 
     @Test
     fun keepsPlaceNameWithSpaces() {
-        val csv = "8.682127,50.110924,\"7 - Frankfurt am Main\","
-        val poi = Tankpool24Service.parseCsv(csv).single()
-        assertEquals("Tankpool24 Frankfurt am Main", poi.name)
+        val single = kml.substringBefore("</Placemark>") + "</Placemark></Document></kml>"
+        val poi = Tankpool24Service.parseKml(single).single()
+        assertEquals("Tankpool24 Nordhausen", poi.name)
     }
 
     @Test
-    fun skipsHeaderAndMalformedLines() {
-        val csv = """
-            Longitude,Latitude,Name,
-            ,,,
-            not-a-number,50.0,"1 - X",
-            8.0,not-a-number,"2 - Y",
-            200.0,50.0,"3 - OutOfRangeLon",
-            8.0,95.0,"4 - OutOfRangeLat",
-            8.0,50.0,,
-            8.0,50.0,"1 - Gueltig",
+    fun skipsMalformedPlacemarks() {
+        val broken = """
+            <Placemark><name>not-a-number - X</name>
+              <Point><coordinates>8.0,50.0,0</coordinates></Point></Placemark>
+            <Placemark><name>2 - Y</name>
+              <Point><coordinates>200.0,50.0,0</coordinates></Point></Placemark>
+            <Placemark><name>3 - Z</name>
+              <Point><coordinates>8.0,95.0,0</coordinates></Point></Placemark>
+            <Placemark><name>4 - Gueltig</name>
+              <Point><coordinates>8.0,50.0,0</coordinates></Point></Placemark>
         """.trimIndent()
 
-        val pois = Tankpool24Service.parseCsv(csv)
+        val pois = Tankpool24Service.parseKml(broken)
 
         assertEquals(1, pois.size)
         assertEquals("Tankpool24 Gueltig", pois.single().name)
     }
 
     @Test
-    fun handlesCrLfAndBlankLines() {
-        val csv = "9.0,53.0,\"1 - A\",\r\n\r\n9.1,53.1,\"2 - B\",\r\n"
-        assertEquals(2, Tankpool24Service.parseCsv(csv).size)
+    fun placemarkWithoutCoordinatesIsSkipped() {
+        val noPoint = """
+            <Placemark><name>5 - Ohne Punkt</name>
+              <description><![CDATA[x]]></description></Placemark>
+        """.trimIndent()
+        assertTrue(Tankpool24Service.parseKml(noPoint).isEmpty())
     }
 
     @Test
-    fun extractsGarminCsvFromZip() {
-        val zip = zipOf("Navigationsdaten/garminCSV.csv" to "9.0,53.0,\"1 - A\",")
-        val csv = Tankpool24Service.unzipCsv(zip)
-        assertTrue(csv!!.contains("1 - A"))
+    fun extractsKmlFromZip() {
+        val zip = zipOf("Navigationsdaten/kml_08012026.kml" to kml)
+        val text = Tankpool24Service.unzipKml(zip)
+        assertTrue(text!!.contains("100301 - Nordhausen"))
+        assertTrue(text.contains("Südstraße 10"))
     }
 
     @Test
-    fun missingCsvInZipReturnsNull() {
-        val zip = zipOf("Navigationsdaten/readme.txt" to "nope")
-        assertNull(Tankpool24Service.unzipCsv(zip))
+    fun missingKmlInZipReturnsNull() {
+        val zip = zipOf("Navigationsdaten/garminCSV.csv" to "9.0,53.0")
+        assertNull(Tankpool24Service.unzipKml(zip))
     }
 
     private fun zipOf(vararg entries: Pair<String, String>): ByteArray {
@@ -80,7 +106,7 @@ class Tankpool24Test {
         ZipOutputStream(out).use { zip ->
             for ((name, content) in entries) {
                 zip.putNextEntry(ZipEntry(name))
-                zip.write(content.toByteArray(Charsets.ISO_8859_1))
+                zip.write(content.toByteArray(Charsets.UTF_8))
                 zip.closeEntry()
             }
         }

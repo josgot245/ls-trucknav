@@ -11,7 +11,6 @@ import de.ls.trucknav.BuildConfig
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.data.SettingsRepository
-import de.ls.trucknav.data.RouteSort
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.data.VehicleMode
 import de.ls.trucknav.location.LocationFilter
@@ -44,6 +43,7 @@ import de.ls.trucknav.util.distanceMeters
 import de.ls.trucknav.util.distanceToPolylineMeters
 import de.ls.trucknav.util.roundedDistance
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +51,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import kotlin.math.abs
 
@@ -115,6 +116,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var tankpoolJob: Job? = null
     private var tankpoolStations: List<TruckPoi> = emptyList()
 
+    // Liste der Tankpool24-Stationen im Umkreis bzw. entlang der Route.
+    private var tankpoolListJob: Job? = null
+    private var lastTankpoolListCenter: GeoPoint? = null
+
     private var heightJob: Job? = null
     private var lastHeightCenter: GeoPoint? = null
     private var lastHeightFetchAt = 0L
@@ -138,7 +143,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     tankpoolPoisEnabled = settings.tankpoolPois,
                     heightWarningsEnabled = settings.heightWarnings,
                     mapStyleMode = settings.mapStyleMode,
-                    routeSort = settings.routeSort,
                     favorites = settings.favorites,
                     history = settings.history,
                 )
@@ -268,6 +272,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         maybeFetchTruckInfo(smoothed.point)
         updateHeightWarning(smoothed.point, smoothed.bearing, routePoints, restrictToRoute)
         updateMapStyle()
+
+        // Tankpool24-Liste nur bei offenem Fenster und deutlicher Bewegung neu
+        // berechnen (die Pruefung gegen die Route ist vergleichsweise teuer).
+        if (_state.value.showTankpoolList) {
+            val center = lastTankpoolListCenter
+            if (center == null || distanceMeters(center, smoothed.point) > TANKPOOL_LIST_REFRESH_DISTANCE_M) {
+                refreshTankpoolList()
+            }
+        }
 
         val updated = _state.value
         if (pendingRoute && updated.destination != null && updated.route == null && !updated.routing) {
@@ -621,15 +634,73 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    /** Laedt die Tankpool24-Liste einmalig und filtert sie danach lokal. */
-    private fun maybeLoadTankpool() {
-        if (!_state.value.tankpoolPoisEnabled) return
+    /**
+     * Laedt die Tankpool24-Liste einmalig und filtert sie danach lokal.
+     * [force] laedt die Liste auch dann, wenn die Kartenanzeige der Stationen
+     * ausgeschaltet ist (fuer das Listenfenster).
+     */
+    private fun maybeLoadTankpool(force: Boolean = false) {
+        if (!force && !_state.value.tankpoolPoisEnabled) return
         if (tankpoolStations.isNotEmpty() || tankpoolJob?.isActive == true) return
         tankpoolJob = viewModelScope.launch {
-            val stations = tankpoolApi.load() ?: return@launch
+            val stations = tankpoolApi.load()
+            if (stations == null) {
+                _state.update { it.copy(tankpoolLoading = false) }
+                return@launch
+            }
             tankpoolStations = stations
+            if (_state.value.showTankpoolList) refreshTankpoolList()
             _state.value.location?.let { publishPois(it) }
         }
+    }
+
+    /** Oeffnet das Fenster mit den Tankpool24-Stationen in der Naehe. */
+    fun openTankpoolList() {
+        _state.update {
+            it.copy(
+                showTankpoolList = true,
+                tankpoolLoading = tankpoolStations.isEmpty(),
+            )
+        }
+        maybeLoadTankpool(force = true)
+        refreshTankpoolList()
+    }
+
+    fun closeTankpoolList() {
+        _state.update { it.copy(showTankpoolList = false) }
+    }
+
+    /**
+     * Fuellt die Tankpool24-Liste: ohne aktive Zielfuehrung alle Stationen im
+     * Umkreis der Position, mit aktiver Zielfuehrung alle Stationen entlang der
+     * Route. Die Berechnung laeuft ausserhalb des Haupt-Threads, weil die
+     * Stationen gegen die gesamte Route geprueft werden.
+     */
+    private fun refreshTankpoolList() {
+        val stations = tankpoolStations
+        if (stations.isEmpty()) return
+        val snapshot = _state.value
+        val location = snapshot.location
+        val route = if (snapshot.navActive) snapshot.route?.points else null
+        tankpoolListJob?.cancel()
+        tankpoolListJob = viewModelScope.launch {
+            val entries = withContext(Dispatchers.Default) {
+                if (!route.isNullOrEmpty()) {
+                    tankpoolAlongRoute(stations, route, location, TANKPOOL_ROUTE_RADIUS_M)
+                } else if (location != null) {
+                    tankpoolNearby(stations, location, TANKPOOL_LIST_RADIUS_M)
+                } else {
+                    emptyList()
+                }
+            }
+            lastTankpoolListCenter = location
+            _state.update { it.copy(tankpoolEntries = entries, tankpoolLoading = false) }
+        }
+    }
+
+    /** Berechnet die Liste neu, wenn das Fenster gerade offen ist. */
+    private fun refreshTankpoolListIfOpen() {
+        if (_state.value.showTankpoolList) refreshTankpoolList()
     }
 
     /** Fuehrt OSM-Punkte und nahe Tankpool24-Stationen zur Anzeige zusammen. */
@@ -790,6 +861,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 results = emptyList(),
                 searching = false,
                 showSearch = false,
+                showTankpoolList = false,
                 route = null,
                 routeOptions = emptyList(),
                 selectedRouteIndex = 0,
@@ -798,6 +870,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 nav = null,
                 arrived = false,
                 notice = null,
+                selectedPoi = null,
             )
         }
         if (_state.value.location == null) {
@@ -961,6 +1034,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 nav = if (it.navActive) engine.initialUpdate() else it.nav,
             )
         }
+        refreshTankpoolListIfOpen()
     }
 
     /** Waehlt eine der vorgeschlagenen Routen aus (Tippen in der Vorschau). */
@@ -971,11 +1045,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         applyRoute(options, index)
     }
 
-    /** Aendert die Sortierung der Vorschlagsliste (schnellste/kuerzeste zuerst). */
-    fun setRouteSort(sort: RouteSort) {
-        if (_state.value.routeSort == sort) return
-        _state.update { it.copy(routeSort = sort) }
-        viewModelScope.launch { settingsRepo.saveRouteSort(sort) }
+    /**
+     * Oeffnet die Info-Karte eines angetippten LKW-Punktes bzw. schliesst sie
+     * wieder, wenn ins Leere getippt wurde.
+     */
+    fun selectPoi(poi: TruckPoi?) {
+        if (_state.value.selectedPoi == poi) return
+        _state.update { it.copy(selectedPoi = poi) }
+    }
+
+    /** Plant eine Route zur angetippten Station und schliesst die Info-Karte. */
+    fun routeToPoi(poi: TruckPoi) {
+        val name = poi.name ?: "Tankpool24-Station"
+        val subtitle = poi.address ?: "Tankpool24"
+        selectDestination(Place(name = name, subtitle = subtitle, point = poi.point))
     }
 
     fun retryRoute() {
@@ -1008,8 +1091,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 nav = null,
                 arrived = false,
                 routing = false,
+                selectedPoi = null,
             )
         }
+        refreshTankpoolListIfOpen()
     }
 
     private fun maybeRecalculate() {
@@ -1060,6 +1145,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(navActive = true, arrived = false, nav = initial, showSearch = false)
         }
+        refreshTankpoolListIfOpen()
         (route.destination ?: _state.value.destination)?.let { recordHistory(it) }
     }
 
@@ -1075,6 +1161,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(navActive = false, nav = null, arrived = false)
         }
+        refreshTankpoolListIfOpen()
     }
 
     fun toggleVoice() {
@@ -1459,6 +1546,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         /** Umkreis, in dem Tankpool24-Stationen angezeigt werden. */
         const val TANKPOOL_RADIUS_M = 12_000.0
+
+        /** Umkreis der Tankpool24-Liste ohne aktive Zielfuehrung. */
+        const val TANKPOOL_LIST_RADIUS_M = 100_000.0
+
+        /** Umkreis der Tankpool24-Liste um die Route (bei aktiver Zielfuehrung). */
+        const val TANKPOOL_ROUTE_RADIUS_M = 15_000.0
+
+        /** Tankpool24-Liste erst nach dieser Strecke neu berechnen. */
+        const val TANKPOOL_LIST_REFRESH_DISTANCE_M = 5_000.0
 
         /** Mindestpause zwischen zwei Hoehen-Abfragen. */
         const val HEIGHT_MIN_INTERVAL_MS = 180_000L

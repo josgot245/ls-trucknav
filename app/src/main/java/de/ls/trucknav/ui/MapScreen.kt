@@ -4,6 +4,7 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -32,9 +33,11 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.ForkLeft
 import androidx.compose.material.icons.filled.ForkRight
+import androidx.compose.material.icons.filled.LocalGasStation
 import androidx.compose.material.icons.filled.LocalShipping
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MyLocation
@@ -77,6 +80,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -87,8 +91,8 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.ls.trucknav.R
 import de.ls.trucknav.data.VehicleMode
-import de.ls.trucknav.data.RouteSort
 import de.ls.trucknav.model.HeightRestriction
 import de.ls.trucknav.model.JunctionSign
 import de.ls.trucknav.model.LaneGuide
@@ -97,6 +101,8 @@ import de.ls.trucknav.model.Place
 import de.ls.trucknav.model.SpeedCamera
 import de.ls.trucknav.model.TrafficKind
 import de.ls.trucknav.model.TrafficWarning
+import de.ls.trucknav.model.TruckPoi
+import de.ls.trucknav.model.TruckPoiKind
 import de.ls.trucknav.nav.NavUpdate
 import de.ls.trucknav.ui.components.SpeedLimitSign
 import de.ls.trucknav.ui.components.WarningTriangle
@@ -158,8 +164,11 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
     }
 
     val view = LocalView.current
-    DisposableEffect(state.navActive) {
-        view.keepScreenOn = state.navActive
+    // Der Bildschirm bleibt an, solange die App sichtbar ist – nicht nur
+    // waehrend der Zielfuehrung. Die Ansicht existiert nur im Vordergrund,
+    // im Hintergrund greift die Bildschirmsperre wieder.
+    DisposableEffect(Unit) {
+        view.keepScreenOn = true
         onDispose { view.keepScreenOn = false }
     }
 
@@ -201,6 +210,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             controls = mapControls,
             topPadding = mapTopPadding,
             bottomPadding = mapBottomPadding,
+            onPoiTap = viewModel::selectPoi,
         )
 
         Text(
@@ -276,6 +286,15 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     }
                 )
         ) {
+            state.selectedPoi?.let { poi ->
+                PoiInfoCard(
+                    poi = poi,
+                    onRoute = { viewModel.routeToPoi(poi) },
+                    onDismiss = { viewModel.selectPoi(null) },
+                )
+                Spacer(Modifier.height(8.dp))
+            }
+
             state.heightWarning?.let { restriction ->
                 HeightWarningBanner(
                     restriction = restriction,
@@ -338,7 +357,6 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     onClear = viewModel::clearDestination,
                     onToggleFavorite = viewModel::toggleFavorite,
                     onSelectRoute = viewModel::selectRoute,
-                    onSelectSort = viewModel::setRouteSort,
                 )
 
                 state.destination != null && state.routeError != null -> ErrorCard(
@@ -351,9 +369,11 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             }
         }
 
-        // Zoom und Kompass am rechten Rand – immer erreichbar.
+        // Zoom, Kompass und Tankpool24 am rechten Rand – immer erreichbar.
         MapControlButtons(
             controls = mapControls,
+            tankpoolActive = state.showTankpoolList,
+            onTankpool = viewModel::openTankpoolList,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
                 .padding(end = 12.dp),
@@ -385,6 +405,14 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 onToggleFavorite = viewModel::toggleFavorite,
                 onClearHistory = viewModel::clearHistory,
                 onDismiss = viewModel::closeSearch,
+            )
+        }
+
+        if (state.showTankpoolList) {
+            TankpoolListSheet(
+                state = state,
+                onSelect = viewModel::routeToPoi,
+                onDismiss = viewModel::closeTankpoolList,
             )
         }
 
@@ -614,10 +642,12 @@ private fun SpeedBadge(state: UiState) {
     }
 }
 
-/** Zoom- und Kompass-Schaltflaechen am rechten Kartenrand. */
+/** Zoom-, Kompass- und Tankpool24-Schaltflaechen am rechten Kartenrand. */
 @Composable
 private fun MapControlButtons(
     controls: MapControls,
+    tankpoolActive: Boolean,
+    onTankpool: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(
@@ -648,6 +678,38 @@ private fun MapControlButtons(
             size = 48.dp,
             onClick = { controls.zoomOut() },
         )
+        TankpoolButton(
+            active = tankpoolActive,
+            onClick = onTankpool,
+        )
+    }
+}
+
+/**
+ * Tankpool24-Schaltflaeche: weisser Kreis mit rotem Rand und dem eigenen Logo –
+ * passend zum Tankpool24-Kartenmarker und zum uebrigen Rot der Bedienelemente.
+ */
+@Composable
+private fun TankpoolButton(
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = CircleShape,
+        color = Color.White,
+        border = BorderStroke(if (active) 3.dp else 2.dp, AppPrimary),
+        shadowElevation = 6.dp,
+    ) {
+        IconButton(
+            onClick = onClick,
+            modifier = Modifier.size(48.dp),
+        ) {
+            Image(
+                painter = painterResource(R.drawable.tankpool24_logo),
+                contentDescription = "Tankpool24-Stationen",
+                modifier = Modifier.size(30.dp),
+            )
+        }
     }
 }
 
@@ -928,7 +990,6 @@ private fun RouteCard(
     onClear: () -> Unit,
     onToggleFavorite: (Place) -> Unit,
     onSelectRoute: (Int) -> Unit,
-    onSelectSort: (RouteSort) -> Unit,
 ) {
     val route = state.route ?: return
     val destination = state.destination
@@ -1004,38 +1065,25 @@ private fun RouteCard(
 
             if (state.routeOptions.size > 1) {
                 Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        text = "Routenvorschläge",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = AppTextMuted,
-                    )
-                    Spacer(Modifier.weight(1f))
-                    SortPill(
-                        label = "Schnellste",
-                        selected = state.routeSort == RouteSort.DURATION,
-                        onClick = { onSelectSort(RouteSort.DURATION) },
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    SortPill(
-                        label = "Kürzeste",
-                        selected = state.routeSort == RouteSort.LENGTH,
-                        onClick = { onSelectSort(RouteSort.LENGTH) },
-                    )
-                }
+                Text(
+                    text = "Routenvorschläge",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = AppTextMuted,
+                )
                 Spacer(Modifier.height(8.dp))
-                // Nach Fahrzeit oder Laenge sortiert; der Originalindex bleibt
-                // erhalten, damit die Auswahl (selectedRouteIndex) stimmt.
-                val sorted = sortRouteOptions(state.routeOptions, state.routeSort)
-                sorted.forEachIndexed { position, entry ->
+                // Feste Reihenfolge: schnellste, kuerzeste, dann Alternativen.
+                // Der Originalindex bleibt in [RouteOptionEntry.index] erhalten,
+                // damit die Auswahl (selectedRouteIndex) stimmt.
+                val entries = labelRouteOptions(state.routeOptions)
+                entries.forEachIndexed { position, entry ->
                     RouteOptionRow(
-                        label = "Route ${position + 1}",
-                        distance = entry.value.distance,
-                        time = entry.value.time,
+                        label = entry.label,
+                        distance = entry.route.distance,
+                        time = entry.route.time,
                         active = entry.index == state.selectedRouteIndex,
                         onClick = { onSelectRoute(entry.index) },
                     )
-                    if (position != sorted.lastIndex) {
+                    if (position != entries.lastIndex) {
                         Spacer(Modifier.height(6.dp))
                     }
                 }
@@ -1087,29 +1135,6 @@ private fun RouteCard(
                 color = AppTextMuted,
             )
         }
-    }
-}
-
-/**
- * Kleiner Umschalter fuer die Sortierung der Vorschlagsliste (hellrot umrandet,
- * wenn aktiv).
- */
-@Composable
-private fun SortPill(label: String, selected: Boolean, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(50),
-        color = if (selected) AppPrimary.copy(alpha = 0.2f) else AppSurfaceVariant.copy(alpha = 0.5f),
-        border = BorderStroke(1.dp, if (selected) AppPrimary else AppTextMuted.copy(alpha = 0.4f)),
-        modifier = Modifier
-            .clip(RoundedCornerShape(50))
-            .clickable(onClick = onClick),
-    ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = if (selected) AppText else AppTextMuted,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-        )
     }
 }
 
@@ -1251,6 +1276,92 @@ private fun NavDashboard(
             }
         }
     }
+}
+
+/**
+ * Info-Karte zu einem angetippten LKW-Punkt: Name, Anschrift und ein Knopf,
+ * der direkt eine Route dorthin plant.
+ */
+@Composable
+private fun PoiInfoCard(
+    poi: TruckPoi,
+    onRoute: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val tankpool = poi.kind == TruckPoiKind.TANKPOOL24
+    Surface(
+        shape = RoundedCornerShape(22.dp),
+        color = AppSurface,
+        shadowElevation = 12.dp,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(AppPrimary),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (tankpool) {
+                            Icons.Filled.LocalGasStation
+                        } else {
+                            Icons.Filled.LocalShipping
+                        },
+                        contentDescription = null,
+                        tint = Color.White,
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = poi.name ?: poiKindLabel(poi.kind),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = AppText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        text = poi.address ?: poiKindLabel(poi.kind),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = AppTextMuted,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        imageVector = Icons.Filled.Close,
+                        contentDescription = "Info schließen",
+                        tint = AppTextMuted,
+                    )
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Button(
+                onClick = onRoute,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) {
+                Icon(Icons.Filled.Directions, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Route dorthin", style = MaterialTheme.typography.titleSmall)
+            }
+        }
+    }
+}
+
+/** Anzeigename der Punkt-Art, wenn kein eigener Name vorliegt. */
+private fun poiKindLabel(kind: TruckPoiKind): String = when (kind) {
+    TruckPoiKind.PARKING -> "LKW-Parkplatz"
+    TruckPoiKind.REST -> "Raststätte"
+    TruckPoiKind.FUEL -> "Tankstelle"
+    TruckPoiKind.TANKPOOL24 -> "Tankpool24-Station"
 }
 
 @Composable

@@ -2,11 +2,13 @@ package de.ls.trucknav.ui.map
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
+import de.ls.trucknav.R
 import org.maplibre.android.maps.Style
 
 /**
@@ -48,6 +50,8 @@ object MapIconFactory {
     fun addAll(style: Style, context: Context) {
         val metrics = context.resources.displayMetrics
         val size = (ICON_DP * metrics.density).toInt().coerceAtLeast(48)
+        // Offizielles Tankpool24-Logo (mitgeliefert) fuer den eigenen Marker.
+        val tankpoolLogo = loadTankpoolLogo(context, size)
 
         fun icon(id: String, draw: (Canvas, Float) -> Unit) {
             if (style.getImage(id) != null) return
@@ -65,8 +69,43 @@ object MapIconFactory {
         icon(PARKING) { c, s -> badge(c, s, POI_BLUE, WHITE); letter(c, s, "P", WHITE) }
         icon(REST) { c, s -> badge(c, s, POI_GREEN, WHITE); letter(c, s, "R", WHITE) }
         icon(FUEL) { c, s -> badge(c, s, POI_PURPLE, WHITE); pump(c, s, WHITE, POI_PURPLE) }
-        icon(TANKPOOL24) { c, s -> badge(c, s, TANKPOOL_RED, WHITE); pump(c, s, WHITE, TANKPOOL_RED) }
+        icon(TANKPOOL24) { c, s -> tankpool(c, s, tankpoolLogo) }
         icon(HEIGHT) { c, s -> badge(c, s, WHITE, RED); letter(c, s, "m", INK) }
+    }
+
+    /** Laedt das mitgelieferte Tankpool24-Logo in der Symbolgroesse. */
+    private fun loadTankpoolLogo(context: Context, size: Int): Bitmap? = runCatching {
+        val raw = BitmapFactory.decodeResource(context.resources, R.drawable.tankpool24_logo)
+            ?: return null
+        // Etwas kleiner als der Marker, damit ein Rand sichtbar bleibt.
+        val inner = (size * 0.74f).toInt().coerceAtLeast(24)
+        val scaled = Bitmap.createScaledBitmap(raw, inner, inner, true)
+        if (scaled !== raw) raw.recycle()
+        scaled
+    }.getOrNull()
+
+    /**
+     * Tankpool24-Marker: weisser Kreis mit rotem Rand und dem eigenen Logo.
+     * Faellt auf ein schlichtes "24" zurueck, falls das Logo fehlt.
+     */
+    private fun tankpool(c: Canvas, s: Float, logo: Bitmap?) {
+        val center = s / 2f
+        val radius = s * 0.47f
+        val disc = Paint(Paint.ANTI_ALIAS_FLAG)
+        disc.style = Paint.Style.FILL
+        disc.color = WHITE
+        c.drawCircle(center, center, radius, disc)
+        disc.style = Paint.Style.STROKE
+        disc.strokeWidth = s * 0.07f
+        disc.color = TANKPOOL_RED
+        c.drawCircle(center, center, radius, disc)
+        if (logo != null) {
+            val left = center - logo.width / 2f
+            val top = center - logo.height / 2f
+            c.drawBitmap(logo, left, top, Paint(Paint.FILTER_BITMAP_FLAG))
+        } else {
+            letter(c, s, "24", TANKPOOL_RED)
+        }
     }
 
     /** Runder Marker mit Rand. */

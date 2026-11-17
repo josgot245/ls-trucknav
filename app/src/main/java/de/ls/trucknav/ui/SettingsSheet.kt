@@ -17,6 +17,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -42,6 +43,7 @@ import de.ls.trucknav.BuildConfig
 import de.ls.trucknav.ui.theme.AppDanger
 import de.ls.trucknav.ui.theme.AppPrimary
 import de.ls.trucknav.ui.theme.AppSurface
+import de.ls.trucknav.ui.theme.AppSurfaceVariant
 import de.ls.trucknav.ui.theme.AppText
 import de.ls.trucknav.ui.theme.AppTextMuted
 import java.util.Locale
@@ -107,10 +109,10 @@ fun SettingsSheet(
             SectionTitle("Fahrzeugmodus")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 VehicleMode.entries.forEach { mode ->
-                    FilterChip(
+                    ModeChip(
+                        label = vehicleModeLabel(mode),
                         selected = vehicleMode == mode,
                         onClick = { vehicleMode = mode },
-                        label = { Text(vehicleModeLabel(mode)) },
                     )
                 }
             }
@@ -251,10 +253,10 @@ fun SettingsSheet(
             )
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 MapStyleMode.entries.forEach { mode ->
-                    FilterChip(
+                    ModeChip(
+                        label = mapStyleLabel(mode),
                         selected = mapStyleMode == mode,
                         onClick = { mapStyleMode = mode },
-                        label = { Text(mapStyleLabel(mode)) },
                     )
                 }
             }
@@ -389,6 +391,36 @@ private fun SectionTitle(text: String) {
         fontWeight = FontWeight.Bold,
         color = AppPrimary,
         modifier = Modifier.padding(bottom = 8.dp),
+    )
+}
+
+/**
+ * Auswahl-Chip in der App-Farbwelt: aktive Option in Rot mit weisser Schrift,
+ * inaktive dunkelgrau. Material3 faerbt den aktiven Chip sonst mit dem
+ * gelblichen secondaryContainer, der nicht zum restlichen Rot passt.
+ */
+@Composable
+private fun ModeChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    FilterChip(
+        selected = selected,
+        onClick = onClick,
+        label = { Text(label) },
+        colors = FilterChipDefaults.filterChipColors(
+            containerColor = AppSurfaceVariant,
+            labelColor = AppText,
+            selectedContainerColor = AppPrimary,
+            selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
+        ),
+        border = FilterChipDefaults.filterChipBorder(
+            enabled = true,
+            selected = selected,
+            borderColor = AppTextMuted.copy(alpha = 0.4f),
+            selectedBorderColor = AppPrimary,
+        ),
     )
 }
 

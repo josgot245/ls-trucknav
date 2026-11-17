@@ -21,6 +21,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.model.GeoPoint
 import de.ls.trucknav.model.RouteResult
+import de.ls.trucknav.model.TruckPoi
 import de.ls.trucknav.ui.UiState
 import de.ls.trucknav.util.distanceMeters
 import kotlinx.coroutines.isActive
@@ -47,6 +48,7 @@ fun TruckMapView(
     controls: MapControls = remember { MapControls() },
     topPadding: Dp = 150.dp,
     bottomPadding: Dp = 250.dp,
+    onPoiTap: (TruckPoi?) -> Unit = {},
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -67,6 +69,7 @@ fun TruckMapView(
     var centeredOnce by remember { mutableStateOf(false) }
 
     val latestState = rememberUpdatedState(state)
+    val latestOnPoiTap = rememberUpdatedState(onPoiTap)
 
     // Laedt einen Kartenstil und installiert die eigenen Ebenen darauf.
     fun applyMapStyle(map: MapLibreMap) {
@@ -106,6 +109,13 @@ fun TruckMapView(
                         if (!followEnabled.value) {
                             controls.northUp = abs(map.cameraPosition.bearing) < 1.0f
                         }
+                    }
+                    // Antippen eines LKW-Punktes oeffnet die Info-Karte. Ein
+                    // Tipp ins Leere schliesst sie wieder.
+                    map.addOnMapClickListener { latLng ->
+                        val poi = MapLayers.poiAt(map, latLng, latestState.value.truckPois)
+                        latestOnPoiTap.value(poi)
+                        poi != null
                     }
                     controls.zoomInAction = { zoomBy(map, zoomBias, followEnabled, +1.0) }
                     controls.zoomOutAction = { zoomBy(map, zoomBias, followEnabled, -1.0) }

@@ -160,6 +160,8 @@ data class TruckPoi(
     val point: GeoPoint,
     val name: String?,
     val kind: TruckPoiKind,
+    /** Anschrift (nur bei Tankpool24-Stationen, aus der offiziellen Liste). */
+    val address: String? = null,
 )
 
 /** Eine Durchfahrtshoehen-Beschraenkung aus OpenStreetMap. */

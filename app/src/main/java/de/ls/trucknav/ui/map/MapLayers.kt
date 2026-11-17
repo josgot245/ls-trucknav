@@ -14,6 +14,8 @@ import de.ls.trucknav.model.TrafficWarning
 import de.ls.trucknav.model.TruckPoi
 import de.ls.trucknav.model.TruckPoiKind
 import de.ls.trucknav.ui.UiState
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.LineLayer
@@ -61,6 +63,12 @@ object MapLayers {
     /** Attributname der Art (Farbe) bei Meldungen, POIs und Hoehen. */
     private const val KIND_PROPERTY = "kind"
 
+    /** Stationsname (fuer das Label unter Tankpool24-Markern). */
+    private const val NAME_PROPERTY = "name"
+
+    /** Eindeutige Kennung eines POI (Art + Nummer) fuer das Antippen. */
+    private const val UID_PROPERTY = "uid"
+
     private const val DEST_SOURCE = "ls-destination"
     private const val DEST_LAYER = "ls-destination-layer"
 
@@ -72,6 +80,12 @@ object MapLayers {
 
     private const val POI_SOURCE = "ls-pois"
     private const val POI_LAYER = "ls-pois-layer"
+
+    /** Beschriftungsebene unter den Tankpool24-Markern. */
+    private const val POI_LABEL_LAYER = "ls-pois-label-layer"
+
+    /** Ab dieser Zoomstufe werden die Stationsnamen eingeblendet. */
+    private const val POI_LABEL_MIN_ZOOM = 12f
 
     private const val HEIGHT_SOURCE = "ls-heights"
     private const val HEIGHT_LAYER = "ls-heights-layer"
@@ -223,6 +237,27 @@ object MapLayers {
                 PropertyFactory.iconIgnorePlacement(true),
             )
         )
+        // Stationsnamen der Tankpool24-Marker unter dem Symbol. Die
+        // Beschriftung erscheint erst ab einer sinnvollen Zoomstufe, damit die
+        // Karte beim Ueberblick nicht zugestellt wird.
+        val poiLabels = SymbolLayer(POI_LABEL_LAYER, POI_SOURCE).withProperties(
+            PropertyFactory.textField(Expression.get(NAME_PROPERTY)),
+            PropertyFactory.textSize(11f),
+            PropertyFactory.textColor("#FFFFFF"),
+            PropertyFactory.textHaloColor("#000000"),
+            PropertyFactory.textHaloWidth(1.4f),
+            PropertyFactory.textAnchor("top"),
+            PropertyFactory.textOffset(arrayOf(0f, 1.2f)),
+            PropertyFactory.textAllowOverlap(false),
+            PropertyFactory.textIgnorePlacement(false),
+            PropertyFactory.textOptional(true),
+            PropertyFactory.textMaxWidth(8f),
+        )
+        poiLabels.setFilter(
+            Expression.eq(Expression.get(KIND_PROPERTY), Expression.literal("tankpool24"))
+        )
+        poiLabels.minZoom = POI_LABEL_MIN_ZOOM
+        style.addLayer(poiLabels)
         // Durchfahrtshoehen-Beschraenkungen (Symbol mit "m").
         style.addLayer(
             SymbolLayer(HEIGHT_LAYER, HEIGHT_SOURCE).withProperties(
@@ -258,6 +293,7 @@ object MapLayers {
         CAMERA_LAYER,
         TRAFFIC_LAYER,
         POI_LAYER,
+        POI_LABEL_LAYER,
         HEIGHT_LAYER,
         USER_LAYER,
     )
@@ -412,19 +448,38 @@ object MapLayers {
         }
         val features = pois.map { poi ->
             Feature.fromGeometry(Point.fromLngLat(poi.point.lon, poi.point.lat)).apply {
-                addStringProperty(
-                    KIND_PROPERTY,
-                    when (poi.kind) {
-                        TruckPoiKind.PARKING -> "parking"
-                        TruckPoiKind.REST -> "rest"
-                        TruckPoiKind.FUEL -> "fuel"
-                        TruckPoiKind.TANKPOOL24 -> "tankpool24"
-                    },
-                )
+                addStringProperty(KIND_PROPERTY, kindId(poi.kind))
+                addStringProperty(UID_PROPERTY, uidOf(poi))
+                poi.name?.let { addStringProperty(NAME_PROPERTY, it) }
             }
         }
         source.setGeoJson(FeatureCollection.fromFeatures(features))
     }
+
+    /** Sucht den angetippten LKW-Punkt an einer Bildschirmposition. */
+    fun poiAt(map: MapLibreMap, latLng: LatLng, pois: List<TruckPoi>): TruckPoi? {
+        if (pois.isEmpty()) return null
+        val screen = runCatching { map.projection.toScreenLocation(latLng) }.getOrNull()
+            ?: return null
+        val features = runCatching { map.queryRenderedFeatures(screen, POI_LAYER) }
+            .getOrNull() ?: return null
+        for (feature in features) {
+            val uid = feature.getStringProperty(UID_PROPERTY) ?: continue
+            pois.firstOrNull { uidOf(it) == uid }?.let { return it }
+        }
+        return null
+    }
+
+    /** Attributwert der Art im GeoJSON-Feature. */
+    private fun kindId(kind: TruckPoiKind): String = when (kind) {
+        TruckPoiKind.PARKING -> "parking"
+        TruckPoiKind.REST -> "rest"
+        TruckPoiKind.FUEL -> "fuel"
+        TruckPoiKind.TANKPOOL24 -> "tankpool24"
+    }
+
+    /** Eindeutige Kennung aus Art und Nummer. */
+    private fun uidOf(poi: TruckPoi): String = "${kindId(poi.kind)}:${poi.id}"
 
     private fun setHeights(style: org.maplibre.android.maps.Style, restrictions: List<HeightRestriction>) {
         if (restrictions == lastHeights) return
