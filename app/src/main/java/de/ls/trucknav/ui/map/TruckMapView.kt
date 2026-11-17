@@ -190,6 +190,8 @@ fun TruckMapView(
         styleGeneration,
         mapHolder.value,
         state.route,
+        state.routeOptions,
+        state.selectedRouteIndex,
         state.location,
         state.bearing,
         state.nav?.snapped,

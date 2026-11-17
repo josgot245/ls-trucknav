@@ -247,20 +247,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Tempolimit und Blitzerwarnung anhand der geglaetteten Position.
         maybeUpdateSpeedLimit(smoothed.point)
         maybeFetchCameras(smoothed.point)
-        updateCameraWarning(
-            point = smoothed.point,
-            bearing = smoothed.bearing,
-            routePoints = _state.value.route?.points,
-            routeActive = _state.value.navActive && _state.value.nav?.offRoute == false,
-        )
 
         // Verkehrsmeldungen (Autobahn), LKW-Punkte und Durchfahrtshoehen.
         val routePoints = _state.value.route?.points
-        val routeActive = _state.value.navActive && _state.value.nav?.offRoute == false
+        // Sobald eine Route berechnet ist, wird nur noch auf dieser Route
+        // gewarnt – unabhaengig davon, ob die Zielfuehrung schon laeuft. Sonst
+        // kaemen Warnungen abseits der Route (z. B. zu niedrige Bruecken auf
+        // parallel verlaufenden Strassen).
+        val restrictToRoute = routePoints != null
+        updateCameraWarning(
+            point = smoothed.point,
+            bearing = smoothed.bearing,
+            routePoints = routePoints,
+            routeActive = restrictToRoute,
+        )
         maybeFetchTraffic(smoothed.point, _state.value.speedLimitRoad)
-        updateTrafficWarning(smoothed.point, smoothed.bearing, routePoints, routeActive)
+        updateTrafficWarning(smoothed.point, smoothed.bearing, routePoints, restrictToRoute)
         maybeFetchTruckInfo(smoothed.point)
-        updateHeightWarning(smoothed.point, smoothed.bearing, routePoints, routeActive)
+        updateHeightWarning(smoothed.point, smoothed.bearing, routePoints, restrictToRoute)
         updateMapStyle()
 
         val updated = _state.value
@@ -785,6 +789,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 searching = false,
                 showSearch = false,
                 route = null,
+                routeOptions = emptyList(),
+                selectedRouteIndex = 0,
                 routeError = null,
                 navActive = false,
                 nav = null,
@@ -853,7 +859,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         routeJob = viewModelScope.launch {
             _state.update { it.copy(routing = true, routeError = null) }
             try {
-                val route = valhallaApi.route(
+                val routes = valhallaApi.route(
                     from = start,
                     to = destination.point,
                     profile = snapshot.profile,
@@ -861,7 +867,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     baseUrl = snapshot.routingUrl,
                 )
                 if (token != routeRequestId) return@launch
-                applyRoute(route.copy(destination = destination))
+                applyRoute(routes.map { it.copy(destination = destination) }, 0)
             } catch (e: CancellationException) {
                 throw e
             } catch (truckError: Exception) {
@@ -889,7 +895,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         truckError: Exception,
     ) {
         try {
-            val carRoute = valhallaApi.route(
+            val carRoutes = valhallaApi.route(
                 from = start,
                 to = destination.point,
                 profile = snapshot.profile,
@@ -897,7 +903,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 baseUrl = snapshot.routingUrl,
             )
             if (token != routeRequestId) return
-            applyRoute(carRoute.copy(destination = destination))
+            applyRoute(carRoutes.map { it.copy(destination = destination) }, 0)
             _state.update {
                 it.copy(
                     notice = "Keine LKW-Route gefunden – PKW-Route aktiv. Beschilderung beachten!",
@@ -930,7 +936,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    private fun applyRoute(route: RouteResult) {
+    /**
+     * Uebernimmt eine oder mehrere berechnete Routen. [index] waehlt die
+     * aktive Route; die uebrigen bleiben als Ausweichrouten zum Vergleich.
+     */
+    private fun applyRoute(options: List<RouteResult>, index: Int) {
+        if (options.isEmpty()) return
+        val route = options[index.coerceIn(options.indices)]
         engine.setRoute(route)
         recalcCount = 0
         rerouteCapNotified = false
@@ -940,11 +952,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _state.update {
             it.copy(
                 route = route,
+                routeOptions = options,
+                selectedRouteIndex = index.coerceIn(options.indices),
                 routing = false,
                 routeError = null,
                 nav = if (it.navActive) engine.initialUpdate() else it.nav,
             )
         }
+    }
+
+    /** Waehlt eine der vorgeschlagenen Routen aus (Tippen in der Vorschau). */
+    fun selectRoute(index: Int) {
+        val snapshot = _state.value
+        val options = snapshot.routeOptions
+        if (index !in options.indices || index == snapshot.selectedRouteIndex) return
+        applyRoute(options, index)
     }
 
     fun retryRoute() {
@@ -968,6 +990,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             it.copy(
                 destination = null,
                 route = null,
+                routeOptions = emptyList(),
+                selectedRouteIndex = 0,
                 query = "",
                 results = emptyList(),
                 routeError = null,

@@ -104,6 +104,7 @@ import de.ls.trucknav.ui.map.TruckMapView
 import de.ls.trucknav.ui.theme.AppBackground
 import de.ls.trucknav.ui.theme.AppDanger
 import de.ls.trucknav.ui.theme.AppPrimary
+import de.ls.trucknav.ui.theme.AppRouteAlternate
 import de.ls.trucknav.ui.theme.AppSecondary
 import de.ls.trucknav.ui.theme.AppSurface
 import de.ls.trucknav.ui.theme.AppSurfaceVariant
@@ -335,6 +336,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     onStart = viewModel::startNavigation,
                     onClear = viewModel::clearDestination,
                     onToggleFavorite = viewModel::toggleFavorite,
+                    onSelectRoute = viewModel::selectRoute,
                 )
 
                 state.destination != null && state.routeError != null -> ErrorCard(
@@ -923,6 +925,7 @@ private fun RouteCard(
     onStart: () -> Unit,
     onClear: () -> Unit,
     onToggleFavorite: (Place) -> Unit,
+    onSelectRoute: (Int) -> Unit,
 ) {
     val route = state.route ?: return
     val destination = state.destination
@@ -996,6 +999,28 @@ private fun RouteCard(
                 }
             }
 
+            if (state.routeOptions.size > 1) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "Routenvorschläge",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = AppTextMuted,
+                )
+                Spacer(Modifier.height(6.dp))
+                state.routeOptions.forEachIndexed { index, option ->
+                    RouteOptionRow(
+                        label = "Route ${index + 1}",
+                        distance = option.distance,
+                        time = option.time,
+                        active = index == state.selectedRouteIndex,
+                        onClick = { onSelectRoute(index) },
+                    )
+                    if (index != state.routeOptions.lastIndex) {
+                        Spacer(Modifier.height(6.dp))
+                    }
+                }
+            }
+
             Spacer(Modifier.height(6.dp))
             Text(
                 text = if (state.vehicleMode == VehicleMode.CAR) {
@@ -1040,6 +1065,55 @@ private fun RouteCard(
                 text = "Karten- und Routendaten: OpenStreetMap. Beschilderung hat Vorrang.",
                 style = MaterialTheme.typography.labelSmall,
                 color = AppTextMuted,
+            )
+        }
+    }
+}
+
+/**
+ * Eine Zeile in der Liste der Routenvorschlaege: aktive Route in Dunkelrot,
+ * Ausweichrouten in Hellrot. Tippen waehlt die Route aus.
+ */
+@Composable
+private fun RouteOptionRow(
+    label: String,
+    distance: Double,
+    time: Double,
+    active: Boolean,
+    onClick: () -> Unit,
+) {
+    val accent = if (active) AppPrimary else AppRouteAlternate
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = if (active) AppPrimary.copy(alpha = 0.16f) else AppSurfaceVariant.copy(alpha = 0.5f),
+        border = BorderStroke(if (active) 2.dp else 1.dp, accent),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(12.dp)
+                    .clip(CircleShape)
+                    .background(accent)
+            )
+            Spacer(Modifier.width(10.dp))
+            Text(
+                text = label,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = AppText,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(
+                text = "${formatDistance(distance)} · ${formatDuration(time)}",
+                style = MaterialTheme.typography.titleSmall,
+                color = if (active) AppText else AppTextMuted,
             )
         }
     }

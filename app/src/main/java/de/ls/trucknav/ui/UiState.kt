@@ -77,6 +77,13 @@ data class UiState(
     val history: List<Place> = emptyList(),
 
     val route: RouteResult? = null,
+
+    /** Alle vorgeschlagenen Routen (Hauptroute zuerst), zum Vergleichen. */
+    val routeOptions: List<RouteResult> = emptyList(),
+
+    /** Index der ausgewaehlten Route in [routeOptions]. */
+    val selectedRouteIndex: Int = 0,
+
     val routing: Boolean = false,
     val routeError: String? = null,
     val notice: String? = null,

@@ -9,6 +9,7 @@ import de.ls.trucknav.util.decodePolyline6
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -37,7 +38,7 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
         profile: TruckProfile,
         truck: Boolean,
         baseUrl: String,
-    ): RouteResult = withContext(Dispatchers.IO) {
+    ): List<RouteResult> = withContext(Dispatchers.IO) {
         val payload = buildJsonObject {
             put("locations", buildJsonArray {
                 addJsonObject {
@@ -73,6 +74,8 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
             }
             // Spurführung und Beschilderung an Verzweigungen anfordern.
             put("turn_lanes", true)
+            // Bis zu zwei Ausweichrouten mitliefern lassen (zusammen drei).
+            put("alternates", ALTERNATES)
         }
 
         val request = Request.Builder()
@@ -86,16 +89,32 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
             if (!response.isSuccessful) {
                 throw RoutingException(friendlyError(response.code, text))
             }
-            parseRoute(text, truck)
+            parseRoutes(text, truck)
         }
     }
 
-    private fun parseRoute(body: String, truck: Boolean): RouteResult {
+    /**
+     * Liest die Hauptroute und, falls vorhanden, die Ausweichrouten aus der
+     * Antwort. Reihenfolge: zuerst die Hauptroute (Valhalla-Vorschlag), danach
+     * die Alternativen. Fehlerhafte Alternativen werden uebersprungen.
+     */
+    internal fun parseRoutes(body: String, truck: Boolean): List<RouteResult> {
         val root = runCatching { Json.parseToJsonElement(body).jsonObject }.getOrNull()
             ?: throw RoutingException("Antwort des Routing-Servers konnte nicht gelesen werden.")
-        val trip = root["trip"]?.jsonObject
+        val primaryTrip = root["trip"]?.jsonObject
             ?: throw RoutingException("Der Routing-Server hat keine Route geliefert.")
 
+        val routes = ArrayList<RouteResult>()
+        routes.add(parseTrip(primaryTrip, truck))
+        root["alternates"]?.jsonArray?.forEach { element ->
+            val trip = runCatching { element.jsonObject["trip"]?.jsonObject }.getOrNull()
+                ?: return@forEach
+            runCatching { parseTrip(trip, truck) }.getOrNull()?.let { routes.add(it) }
+        }
+        return routes
+    }
+
+    private fun parseTrip(trip: JsonObject, truck: Boolean): RouteResult {
         val summary = trip["summary"]?.jsonObject
         val legs = trip["legs"]?.jsonArray
             ?: throw RoutingException("Die Route enthaelt keine Abschnitte.")
@@ -175,5 +194,8 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+
+        /** Anzahl der Ausweichrouten (Valhalla erlaubt 0-3). */
+        private const val ALTERNATES = 2
     }
 }

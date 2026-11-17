@@ -10,6 +10,8 @@ val AppBackground = Color(0xFF101012)
 val AppSurface = Color(0xFF1B1B1E)
 val AppSurfaceVariant = Color(0xFF2A2A2F)
 val AppPrimary = Color(0xFFE02B36)
+/** Hellrot fuer Ausweichrouten in der Vorschau (aktive Route: [AppPrimary]). */
+val AppRouteAlternate = Color(0xFFF3A0A5)
 val AppSecondary = Color(0xFFFFC246)
 val AppText = Color(0xFFF3F3F4)
 val AppTextMuted = Color(0xFF9E9EA5)

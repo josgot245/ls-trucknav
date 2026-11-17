@@ -37,6 +37,15 @@ object MapLayers {
     private const val ROUTE_CASING = "ls-route-casing"
     private const val ROUTE_LINE = "ls-route-line"
 
+    /** Ausweichrouten (hellrot), damit sie sich von der aktiven Route abheben. */
+    private const val ROUTE_ALT_SOURCE = "ls-route-alt"
+    private const val ROUTE_ALT_CASING = "ls-route-alt-casing"
+    private const val ROUTE_ALT_LINE = "ls-route-alt-line"
+
+    /** Farbe der aktiven Route (dunkelrot) und der Ausweichrouten (hellrot). */
+    private const val ROUTE_ACTIVE_COLOR = "#E02B36"
+    private const val ROUTE_ALTERNATE_COLOR = "#F3A0A5"
+
     private const val USER_SOURCE = "ls-user"
     private const val USER_LAYER = "ls-user-layer"
 
@@ -109,6 +118,8 @@ object MapLayers {
         MapIconFactory.addAll(style, context)
         // Nach einem Stilwechsel sind die Quellen neu und leer: Erneut befuellen.
         lastRouteRef = null
+        lastAltOptions = null
+        lastAltSelected = -1
         lastDestination = null
         lastCameras = null
         lastTraffic = null
@@ -116,6 +127,7 @@ object MapLayers {
         lastHeights = null
 
         style.addSource(GeoJsonSource(ROUTE_SOURCE, emptyCollection()))
+        style.addSource(GeoJsonSource(ROUTE_ALT_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(USER_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(DEST_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(CAMERA_SOURCE, emptyCollection()))
@@ -123,6 +135,24 @@ object MapLayers {
         style.addSource(GeoJsonSource(POI_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(HEIGHT_SOURCE, emptyCollection()))
 
+        // Ausweichrouten zuerst (liegen unter der aktiven Route), hellrot.
+        style.addLayer(
+            LineLayer(ROUTE_ALT_CASING, ROUTE_ALT_SOURCE).withProperties(
+                PropertyFactory.lineColor("#0A0A0B"),
+                PropertyFactory.lineWidth(12f),
+                PropertyFactory.lineOpacity(0.55f),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round"),
+            )
+        )
+        style.addLayer(
+            LineLayer(ROUTE_ALT_LINE, ROUTE_ALT_SOURCE).withProperties(
+                PropertyFactory.lineColor(ROUTE_ALTERNATE_COLOR),
+                PropertyFactory.lineWidth(6f),
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round"),
+            )
+        )
         style.addLayer(
             LineLayer(ROUTE_CASING, ROUTE_SOURCE).withProperties(
                 PropertyFactory.lineColor("#0A0A0B"),
@@ -134,7 +164,7 @@ object MapLayers {
         )
         style.addLayer(
             LineLayer(ROUTE_LINE, ROUTE_SOURCE).withProperties(
-                PropertyFactory.lineColor("#E02B36"),
+                PropertyFactory.lineColor(ROUTE_ACTIVE_COLOR),
                 PropertyFactory.lineWidth(7f),
                 PropertyFactory.lineCap("round"),
                 PropertyFactory.lineJoin("round"),
@@ -241,6 +271,9 @@ object MapLayers {
 
     fun render(style: org.maplibre.android.maps.Style, state: UiState) {
         setRoute(style, state.route)
+        // Nicht gewaehlte Ausweichrouten hellrot darstellen; die aktive Route
+        // liegt als dunkelrote Linie darueber.
+        setRouteAlternatives(style, state.routeOptions, state.selectedRouteIndex)
         // Die eigene Position (Pfeil) wird ausschliesslich vom Frame-Loop in
         // [TruckMapView] gesetzt. Wuerde hier zusaetzlich geschrieben, springt
         // der Pfeil bei jedem GPS-Fix kurz auf den rohen Snap-Punkt und im
@@ -253,6 +286,8 @@ object MapLayers {
     }
 
     private var lastRouteRef: RouteResult? = null
+    private var lastAltOptions: List<RouteResult>? = null
+    private var lastAltSelected: Int = -1
     private var lastDestination: GeoPoint? = null
     private var lastCameras: List<SpeedCamera>? = null
     private var lastTraffic: List<TrafficWarning>? = null
@@ -272,6 +307,29 @@ object MapLayers {
         val coordinates = route.points.map { Point.fromLngLat(it.lon, it.lat) }
         val line = LineString.fromLngLats(coordinates)
         source.setGeoJson(FeatureCollection.fromFeatures(listOf(Feature.fromGeometry(line))))
+    }
+
+    /**
+     * Zeichnet alle nicht gewaehlten Routenvorschlaege als hellrote Linien.
+     * Die aktive Route liegt als dunkelrote Linie darueber. Wird bei jedem
+     * GPS-Fix aufgerufen, deshalb billiger Referenzvergleich statt Inhalt.
+     */
+    private fun setRouteAlternatives(
+        style: org.maplibre.android.maps.Style,
+        options: List<RouteResult>,
+        selectedIndex: Int,
+    ) {
+        if (options === lastAltOptions && selectedIndex == lastAltSelected) return
+        lastAltOptions = options
+        lastAltSelected = selectedIndex
+
+        val source = style.getSourceAs<GeoJsonSource>(ROUTE_ALT_SOURCE) ?: return
+        val features = options.mapIndexedNotNull { index, route ->
+            if (index == selectedIndex || route.points.size < 2) return@mapIndexedNotNull null
+            val coordinates = route.points.map { Point.fromLngLat(it.lon, it.lat) }
+            Feature.fromGeometry(LineString.fromLngLats(coordinates))
+        }
+        source.setGeoJson(FeatureCollection.fromFeatures(features))
     }
 
     /**

@@ -3,7 +3,7 @@
 Firmeninterne LKW-Navigations-App für Android. Karte, Adresssuche, LKW-Routing
 mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
-**Version:** 0.6.0
+**Version:** 0.6.1
 
 ---
 
@@ -19,6 +19,10 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 - **LKW- oder PKW-Modus** (umschaltbar in den Einstellungen oder per Tipp auf
   die Modus-Anzeige in der Kopfzeile): Im PKW-Modus wird wie ein Auto geroutet
   und es gelten die allgemeinen Tempolimits
+- **Routenvorschläge:** Bei der Zieleingabe liefert die App bis zu drei Routen
+  zur Auswahl – mit Länge und Dauer zum Vergleichen. Die aktive Route erscheint
+  dunkelrot, die Ausweichrouten hellrot auf der Karte; ein Tipp auf einen
+  Vorschlag wechselt die Route
 - **Navigation** mit:
   - Kartenverfolgung in Fahrtrichtung – auch ohne laufende Navigation; der
     Kompass wechselt zwischen Fahrtrichtung und Norden
@@ -47,7 +51,8 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
   offiziellen **Tankpool24**-Stationen (einmalig geladen, danach offline)
 - **Durchfahrtshöhen-Warnung** (standardmäßig an): Brücken und Tunnel mit
   lichter Höhe aus OpenStreetMap; Warnung, wenn die eingestellte Fahrzeughöhe
-  nicht passt
+  nicht passt. Gewarnt wird nur auf der eigenen Route – nicht auf parallel
+  verlaufenden Straßen
 - **Spurführung**: an Verzweigungen wird die zu nehmende Spur angezeigt, dazu
   eine aus OpenStreetMap generierte Beschilderung (Ausfahrtsnummer,
   Straßennummern und Ziele). Autobahnschilder sind blau/weiß, Bundes-, Land-
@@ -67,7 +72,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 
 ## Installation auf dem Handy
 
-1. `LS-TruckNav-0.6.0.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
+1. `LS-TruckNav-0.6.1.apk` auf das Gerät kopieren (USB, Cloud, Messenger).
 2. Datei antippen → „Installieren“. Falls gefragt: „Unbekannte Quellen“ für den
    Dateimanager erlauben.
 3. Beim ersten Start **Standortberechtigung** erteilen.
@@ -75,7 +80,7 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 Alternativ per USB-Debugging:
 
 ```powershell
-adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.6.0.apk"
+adb install -r "C:\Users\joshu\Documents\Standardprojekt\LSTruckNav\LS-TruckNav-0.6.1.apk"
 ```
 
 Voraussetzung: Android 10 oder neuer.
@@ -226,7 +231,7 @@ Oder einfach:
 ```
 
 Das Skript baut die Release-Variante (mit Debug-Key signiert, intern
-installierbar) und kopiert sie als `LS-TruckNav-0.6.0.apk` ins Projektverzeichnis.
+installierbar) und kopiert sie als `LS-TruckNav-0.6.1.apk` ins Projektverzeichnis.
 
 ### App-Icon
 
