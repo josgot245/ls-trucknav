@@ -16,6 +16,7 @@ private val Context.settingsStore: DataStore<Preferences> by preferencesDataStor
 
 data class AppSettings(
     val profile: TruckProfile = TruckProfile.DEFAULT,
+    val vehicleMode: VehicleMode = VehicleMode.TRUCK,
     val routingUrl: String = SettingsRepository.DEFAULT_ROUTING_URL,
     val carFallback: Boolean = true,
     val voiceEnabled: Boolean = true,
@@ -42,6 +43,7 @@ class SettingsRepository(private val context: Context) {
         val HAZMAT = booleanPreferencesKey("profile_hazmat")
         val AVOID_TOLLS = booleanPreferencesKey("profile_avoid_tolls")
         val AVOID_HIGHWAYS = booleanPreferencesKey("profile_avoid_highways")
+        val VEHICLE_MODE = stringPreferencesKey("vehicle_mode")
         val ROUTING_URL = stringPreferencesKey("routing_url")
         val CAR_FALLBACK = booleanPreferencesKey("car_fallback")
         val VOICE = booleanPreferencesKey("voice_enabled")
@@ -70,6 +72,9 @@ class SettingsRepository(private val context: Context) {
                 avoidTolls = p[Keys.AVOID_TOLLS] ?: defaults.avoidTolls,
                 avoidHighways = p[Keys.AVOID_HIGHWAYS] ?: defaults.avoidHighways,
             ).sanitized(),
+            vehicleMode = p[Keys.VEHICLE_MODE]
+                ?.let { name -> VehicleMode.entries.firstOrNull { it.name == name } }
+                ?: VehicleMode.TRUCK,
             routingUrl = p[Keys.ROUTING_URL]?.takeIf { it.isNotBlank() } ?: DEFAULT_ROUTING_URL,
             carFallback = p[Keys.CAR_FALLBACK] ?: true,
             voiceEnabled = p[Keys.VOICE] ?: true,
@@ -103,6 +108,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveRoutingUrl(url: String) {
         context.settingsStore.edit { p -> p[Keys.ROUTING_URL] = url }
+    }
+
+    suspend fun saveVehicleMode(mode: VehicleMode) {
+        context.settingsStore.edit { p -> p[Keys.VEHICLE_MODE] = mode.name }
     }
 
     suspend fun saveCarFallback(enabled: Boolean) {

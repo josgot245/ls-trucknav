@@ -31,6 +31,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.ForkLeft
 import androidx.compose.material.icons.filled.ForkRight
@@ -86,6 +87,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import de.ls.trucknav.data.VehicleMode
 import de.ls.trucknav.model.HeightRestriction
 import de.ls.trucknav.model.JunctionSign
 import de.ls.trucknav.model.LaneGuide
@@ -214,6 +216,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 state = state,
                 onSearch = viewModel::openSearch,
                 onSettings = viewModel::openSettings,
+                onToggleMode = viewModel::toggleVehicleMode,
                 onClear = viewModel::clearDestination,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
@@ -388,6 +391,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     viewModel.saveProfile(profile)
                     viewModel.saveAppSettings(
                         routingUrl = options.routingUrl,
+                        vehicleMode = options.vehicleMode,
                         carFallback = options.carFallback,
                         cameraWarnings = options.cameraWarnings,
                         trafficWarnings = options.trafficWarnings,
@@ -420,6 +424,7 @@ private fun TopBar(
     state: UiState,
     onSearch: () -> Unit,
     onSettings: () -> Unit,
+    onToggleMode: () -> Unit,
     onClear: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -507,14 +512,7 @@ private fun TopBar(
             state.speedLimitKmh?.let { limit ->
                 SpeedLimitSign(limitKmh = limit, size = 32.dp)
             }
-            InfoPill(
-                text = String.format(
-                    java.util.Locale.GERMANY,
-                    "LKW %.1f m · %.0f t",
-                    state.profile.height,
-                    state.profile.weight,
-                )
-            )
+            VehicleModePill(state = state, onToggle = onToggleMode)
             InfoPill(
                 text = when {
                     state.location == null -> "GPS wird gesucht …"
@@ -538,6 +536,47 @@ private fun InfoPill(text: String, warning: Boolean = false) {
             color = if (warning) AppSecondary else AppTextMuted,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
+    }
+}
+
+/**
+ * Zeigt den aktiven Fahrzeugmodus und schaltet beim Antippen zwischen LKW und
+ * PKW um (Kurzwahl ohne die Einstellungen zu oeffnen).
+ */
+@Composable
+private fun VehicleModePill(state: UiState, onToggle: () -> Unit) {
+    val car = state.vehicleMode == VehicleMode.CAR
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = if (car) AppSurfaceVariant.copy(alpha = 0.94f) else AppPrimary,
+        modifier = Modifier.clickable(onClick = onToggle),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = if (car) Icons.Filled.DirectionsCar else Icons.Filled.LocalShipping,
+                contentDescription = "Fahrzeugmodus umschalten",
+                tint = if (car) AppTextMuted else Color.White,
+                modifier = Modifier.size(14.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(
+                text = if (car) {
+                    "PKW"
+                } else {
+                    String.format(
+                        java.util.Locale.GERMANY,
+                        "LKW %.1f m · %.0f t",
+                        state.profile.height,
+                        state.profile.weight,
+                    )
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (car) AppTextMuted else Color.White,
+            )
+        }
     }
 }
 
@@ -959,7 +998,11 @@ private fun RouteCard(
 
             Spacer(Modifier.height(6.dp))
             Text(
-                text = "LKW-Profil: ${state.profile.summary()}",
+                text = if (state.vehicleMode == VehicleMode.CAR) {
+                    "PKW-Modus"
+                } else {
+                    "LKW-Profil: ${state.profile.summary()}"
+                },
                 style = MaterialTheme.typography.bodySmall,
                 color = AppTextMuted,
             )

@@ -16,6 +16,9 @@ mit Fahrzeugprofil und Sprachansagen – ohne eigenen Server, ohne API-Key.
 - **LKW-Routing** über Valhalla mit realistischen Fahrzeugmaßen:
   Höhe, Breite, Länge, Gesamtgewicht, Achslast, Achszahl, Gefahrgut,
   Maut vermeiden, Autobahn vermeiden
+- **LKW- oder PKW-Modus** (umschaltbar in den Einstellungen oder per Tipp auf
+  die Modus-Anzeige in der Kopfzeile): Im PKW-Modus wird wie ein Auto geroutet
+  und es gelten die allgemeinen Tempolimits
 - **Navigation** mit:
   - Kartenverfolgung in Fahrtrichtung – auch ohne laufende Navigation; der
     Kompass wechselt zwischen Fahrtrichtung und Norden
@@ -84,7 +87,8 @@ Voraussetzung: Android 10 oder neuer.
 | Aktion | So geht's |
 |---|---|
 | Ziel suchen | Suchfeld oben antippen, mindestens 3 Zeichen eingeben |
-| LKW-Profil ändern | LKW-Symbol oben links |
+| Fahrzeugmodus wechseln | Modus-Anzeige oben antippen (LKW/PKW) |
+| LKW-Profil/Einstellungen ändern | Fahrzeug-Symbol oben links |
 | Route planen | Ziel auswählen – Route wird automatisch berechnet |
 | Navigation starten | „Navigation starten“ in der Routenkarte |
 | Sprache an/aus | Lautsprecher-Symbol unten |
@@ -97,7 +101,7 @@ Während der Navigation bleibt der Bildschirm an.
 
 - Beim Start prüft die App still, ob auf GitHub eine neuere Version vorliegt.
   Ist das der Fall, erscheint ein Dialog mit Versionsnummer und Versionshinweisen.
-- Über **LKW-Profil & Einstellungen → Updates → „Nach Updates suchen“** lässt
+- Über **Fahrzeug & Einstellungen → Updates → „Nach Updates suchen“** lässt
   sich die Prüfung jederzeit manuell anstoßen. Das Ergebnis („Die App ist
   aktuell …“) wird direkt im Einstellungsbereich angezeigt.
 - „Jetzt aktualisieren“ lädt die neue APK herunter und öffnet den

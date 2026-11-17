@@ -12,6 +12,7 @@ import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.data.SettingsRepository
 import de.ls.trucknav.data.TruckProfile
+import de.ls.trucknav.data.VehicleMode
 import de.ls.trucknav.location.LocationFilter
 import de.ls.trucknav.location.LocationSmoother
 import de.ls.trucknav.location.LocationTracker
@@ -126,6 +127,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             _state.update {
                 it.copy(
                     profile = settings.profile,
+                    vehicleMode = settings.vehicleMode,
                     routingUrl = settings.routingUrl,
                     carFallback = settings.carFallback,
                     voiceEnabled = settings.voiceEnabled,
@@ -299,8 +301,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val shape = recentShape.toList()
         speedLimitJob = viewModelScope.launch {
             val info = speedLimitApi.lookup(baseUrl, shape) ?: return@launch
-            // Fuer LKW ueber 3,5 t gilt das strengere LKW-Limit.
-            val truck = _state.value.profile.weight > TRUCK_WEIGHT_THRESHOLD_T
+            // LKW-Limit nur im LKW-Modus und ab 3,5 t; im PKW-Modus gilt
+            // immer das allgemeine Limit.
+            val snapshot = _state.value
+            val truck = snapshot.vehicleMode == VehicleMode.TRUCK &&
+                snapshot.profile.weight > TRUCK_WEIGHT_THRESHOLD_T
             val limit = if (truck) {
                 info.truckSpeedLimitKmh ?: info.speedLimitKmh
             } else {
@@ -633,7 +638,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun maybeFetchHeights(point: GeoPoint) {
-        if (!_state.value.heightWarningsEnabled) return
+        val snapshot = _state.value
+        // Durchfahrtshoehen sind reine LKW-Warnungen und im PKW-Modus sinnlos.
+        if (!snapshot.heightWarningsEnabled || snapshot.vehicleMode == VehicleMode.CAR) return
         if (heightJob?.isActive == true) return
 
         val now = SystemClock.elapsedRealtime()
@@ -661,7 +668,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         routeActive: Boolean,
     ) {
         val snapshot = _state.value
-        if (!snapshot.heightWarningsEnabled) {
+        if (!snapshot.heightWarningsEnabled || snapshot.vehicleMode == VehicleMode.CAR) {
             if (snapshot.heightWarning != null) {
                 _state.update { it.copy(heightWarning = null, heightWarningDistance = 0.0) }
             }
@@ -842,6 +849,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         routeJob?.cancel()
         val token = ++routeRequestId
+        val truck = snapshot.vehicleMode == VehicleMode.TRUCK
         routeJob = viewModelScope.launch {
             _state.update { it.copy(routing = true, routeError = null) }
             try {
@@ -849,7 +857,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     from = start,
                     to = destination.point,
                     profile = snapshot.profile,
-                    truck = true,
+                    truck = truck,
                     baseUrl = snapshot.routingUrl,
                 )
                 if (token != routeRequestId) return@launch
@@ -858,7 +866,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 throw e
             } catch (truckError: Exception) {
                 if (token != routeRequestId) return@launch
-                if (snapshot.carFallback) {
+                // Im PKW-Modus ist bereits mit PKW-Profil geroutet worden;
+                // ein Ausweichversuch auf die PKW-Route ergibt dann keinen Sinn.
+                if (truck && snapshot.carFallback) {
                     fallbackToCar(token, start, destination, snapshot, truckError)
                 } else {
                     reportRouteFailure(token, truckError)
@@ -1063,6 +1073,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveAppSettings(
         routingUrl: String,
+        vehicleMode: VehicleMode,
         carFallback: Boolean,
         cameraWarnings: Boolean,
         trafficWarnings: Boolean,
@@ -1077,9 +1088,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val wasPois = _state.value.truckPoisEnabled
         val wasTankpool = _state.value.tankpoolPoisEnabled
         val wasHeights = _state.value.heightWarningsEnabled
+        val wasMode = _state.value.vehicleMode
         _state.update {
             it.copy(
                 routingUrl = cleanUrl,
+                vehicleMode = vehicleMode,
                 carFallback = carFallback,
                 cameraWarnings = cameraWarnings,
                 trafficEnabled = trafficWarnings,
@@ -1092,6 +1105,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateMapStyle()
         viewModelScope.launch {
             settingsRepo.saveRoutingUrl(cleanUrl)
+            settingsRepo.saveVehicleMode(vehicleMode)
             settingsRepo.saveCarFallback(carFallback)
             settingsRepo.saveCameraWarnings(cameraWarnings)
             settingsRepo.saveTrafficWarnings(trafficWarnings)
@@ -1145,6 +1159,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastHeightFetchAt = 0L
             }
         }
+        // Im PKW-Modus sind Durchfahrtshoehen-Warnungen sinnlos.
+        if (vehicleMode == VehicleMode.CAR && _state.value.heightRestrictions.isNotEmpty()) {
+            _state.update {
+                it.copy(
+                    heightRestrictions = emptyList(),
+                    heightWarning = null,
+                    heightWarningDistance = 0.0,
+                )
+            }
+        }
+        // Modus gewechselt: bestehende Route mit dem neuen Profil neu berechnen.
+        if (vehicleMode != wasMode && _state.value.route != null) {
+            planRoute()
+        }
+    }
+
+    /** Wechselt zwischen LKW- und PKW-Modus (Kurzwahl in der Kopfzeile). */
+    fun setVehicleMode(mode: VehicleMode) {
+        val snapshot = _state.value
+        if (snapshot.vehicleMode == mode) return
+        _state.update {
+            it.copy(
+                vehicleMode = mode,
+                notice = if (mode == VehicleMode.CAR) "PKW-Modus aktiv" else "LKW-Modus aktiv",
+                heightRestrictions = emptyList(),
+                heightWarning = null,
+                heightWarningDistance = 0.0,
+            )
+        }
+        viewModelScope.launch { settingsRepo.saveVehicleMode(mode) }
+        if (_state.value.route != null) {
+            planRoute()
+        }
+    }
+
+    /** Schaltet den Fahrzeugmodus um (Kurzwahl in der Kopfzeile). */
+    fun toggleVehicleMode() {
+        setVehicleMode(
+            if (_state.value.vehicleMode == VehicleMode.TRUCK) {
+                VehicleMode.CAR
+            } else {
+                VehicleMode.TRUCK
+            },
+        )
     }
 
     // ------------------------------------------------------------------ Update

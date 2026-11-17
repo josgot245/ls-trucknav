@@ -4,6 +4,7 @@ import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.data.SettingsRepository
 import de.ls.trucknav.data.TruckProfile
+import de.ls.trucknav.data.VehicleMode
 import de.ls.trucknav.model.GeoPoint
 import de.ls.trucknav.model.HeightRestriction
 import de.ls.trucknav.model.Place
@@ -16,6 +17,10 @@ import de.ls.trucknav.net.UpdateInfo
 
 data class UiState(
     val profile: TruckProfile = TruckProfile.DEFAULT,
+
+    /** LKW- oder PKW-Modus (steuert Routing und Tempolimits). */
+    val vehicleMode: VehicleMode = VehicleMode.TRUCK,
+
     val routingUrl: String = SettingsRepository.DEFAULT_ROUTING_URL,
     val carFallback: Boolean = true,
     val voiceEnabled: Boolean = true,
@@ -111,6 +116,7 @@ data class UiState(
 /** Buendelt die App-weiten Schalter aus dem Einstellungsdialog. */
 data class AppOptions(
     val routingUrl: String,
+    val vehicleMode: VehicleMode,
     val carFallback: Boolean,
     val voiceEnabled: Boolean,
     val cameraWarnings: Boolean,

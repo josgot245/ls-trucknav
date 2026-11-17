@@ -37,6 +37,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.TruckProfile
+import de.ls.trucknav.data.VehicleMode
 import de.ls.trucknav.BuildConfig
 import de.ls.trucknav.ui.theme.AppDanger
 import de.ls.trucknav.ui.theme.AppPrimary
@@ -56,6 +57,7 @@ fun SettingsSheet(
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var vehicleMode by remember { mutableStateOf(state.vehicleMode) }
     var height by remember { mutableStateOf(formatNumber(state.profile.height)) }
     var width by remember { mutableStateOf(formatNumber(state.profile.width)) }
     var length by remember { mutableStateOf(formatNumber(state.profile.length)) }
@@ -90,18 +92,40 @@ fun SettingsSheet(
                 .padding(bottom = 24.dp)
         ) {
             Text(
-                text = "LKW-Profil & Einstellungen",
+                text = "Fahrzeug & Einstellungen",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = AppText,
             )
             Text(
-                text = "Diese Maße und Gewichte werden bei der Routenberechnung berücksichtigt.",
+                text = "Im LKW-Modus werden die Maße und Gewichte bei der Routenberechnung berücksichtigt.",
                 style = MaterialTheme.typography.bodySmall,
                 color = AppTextMuted,
             )
 
             Spacer(Modifier.height(18.dp))
+            SectionTitle("Fahrzeugmodus")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                VehicleMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = vehicleMode == mode,
+                        onClick = { vehicleMode = mode },
+                        label = { Text(vehicleModeLabel(mode)) },
+                    )
+                }
+            }
+            Text(
+                text = if (vehicleMode == VehicleMode.CAR) {
+                    "PKW-Modus: Routing wie ein Auto, allgemeine Tempolimits, keine Durchfahrtshöhen-Warnung."
+                } else {
+                    "LKW-Modus: Routing mit Fahrzeugprofil und LKW-Tempolimits."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = AppTextMuted,
+                modifier = Modifier.padding(top = 8.dp),
+            )
+
+            Spacer(Modifier.height(16.dp))
             SectionTitle("Fahrzeug")
 
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -254,6 +278,7 @@ fun SettingsSheet(
                         profile,
                         AppOptions(
                             routingUrl = routingUrl,
+                            vehicleMode = vehicleMode,
                             carFallback = carFallback,
                             voiceEnabled = voice,
                             cameraWarnings = cameraWarnings,
@@ -431,6 +456,11 @@ private fun mapStyleLabel(mode: MapStyleMode): String = when (mode) {
     MapStyleMode.AUTO -> "Automatisch"
     MapStyleMode.LIGHT -> "Hell"
     MapStyleMode.DARK -> "Dunkel"
+}
+
+private fun vehicleModeLabel(mode: VehicleMode): String = when (mode) {
+    VehicleMode.TRUCK -> "LKW"
+    VehicleMode.CAR -> "PKW"
 }
 
 private fun formatNumber(value: Double): String {
