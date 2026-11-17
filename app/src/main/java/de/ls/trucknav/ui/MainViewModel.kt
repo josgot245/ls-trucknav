@@ -11,6 +11,7 @@ import de.ls.trucknav.BuildConfig
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.MapStyles
 import de.ls.trucknav.data.SettingsRepository
+import de.ls.trucknav.data.RouteSort
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.data.VehicleMode
 import de.ls.trucknav.location.LocationFilter
@@ -137,6 +138,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     tankpoolPoisEnabled = settings.tankpoolPois,
                     heightWarningsEnabled = settings.heightWarnings,
                     mapStyleMode = settings.mapStyleMode,
+                    routeSort = settings.routeSort,
                     favorites = settings.favorites,
                     history = settings.history,
                 )
@@ -967,6 +969,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val options = snapshot.routeOptions
         if (index !in options.indices || index == snapshot.selectedRouteIndex) return
         applyRoute(options, index)
+    }
+
+    /** Aendert die Sortierung der Vorschlagsliste (schnellste/kuerzeste zuerst). */
+    fun setRouteSort(sort: RouteSort) {
+        if (_state.value.routeSort == sort) return
+        _state.update { it.copy(routeSort = sort) }
+        viewModelScope.launch { settingsRepo.saveRouteSort(sort) }
     }
 
     fun retryRoute() {

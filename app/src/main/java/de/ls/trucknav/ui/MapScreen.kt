@@ -88,6 +88,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import de.ls.trucknav.data.VehicleMode
+import de.ls.trucknav.data.RouteSort
 import de.ls.trucknav.model.HeightRestriction
 import de.ls.trucknav.model.JunctionSign
 import de.ls.trucknav.model.LaneGuide
@@ -337,6 +338,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                     onClear = viewModel::clearDestination,
                     onToggleFavorite = viewModel::toggleFavorite,
                     onSelectRoute = viewModel::selectRoute,
+                    onSelectSort = viewModel::setRouteSort,
                 )
 
                 state.destination != null && state.routeError != null -> ErrorCard(
@@ -926,6 +928,7 @@ private fun RouteCard(
     onClear: () -> Unit,
     onToggleFavorite: (Place) -> Unit,
     onSelectRoute: (Int) -> Unit,
+    onSelectSort: (RouteSort) -> Unit,
 ) {
     val route = state.route ?: return
     val destination = state.destination
@@ -1001,21 +1004,38 @@ private fun RouteCard(
 
             if (state.routeOptions.size > 1) {
                 Spacer(Modifier.height(12.dp))
-                Text(
-                    text = "Routenvorschläge",
-                    style = MaterialTheme.typography.labelLarge,
-                    color = AppTextMuted,
-                )
-                Spacer(Modifier.height(6.dp))
-                state.routeOptions.forEachIndexed { index, option ->
-                    RouteOptionRow(
-                        label = "Route ${index + 1}",
-                        distance = option.distance,
-                        time = option.time,
-                        active = index == state.selectedRouteIndex,
-                        onClick = { onSelectRoute(index) },
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "Routenvorschläge",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = AppTextMuted,
                     )
-                    if (index != state.routeOptions.lastIndex) {
+                    Spacer(Modifier.weight(1f))
+                    SortPill(
+                        label = "Schnellste",
+                        selected = state.routeSort == RouteSort.DURATION,
+                        onClick = { onSelectSort(RouteSort.DURATION) },
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    SortPill(
+                        label = "Kürzeste",
+                        selected = state.routeSort == RouteSort.LENGTH,
+                        onClick = { onSelectSort(RouteSort.LENGTH) },
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                // Nach Fahrzeit oder Laenge sortiert; der Originalindex bleibt
+                // erhalten, damit die Auswahl (selectedRouteIndex) stimmt.
+                val sorted = sortRouteOptions(state.routeOptions, state.routeSort)
+                sorted.forEachIndexed { position, entry ->
+                    RouteOptionRow(
+                        label = "Route ${position + 1}",
+                        distance = entry.value.distance,
+                        time = entry.value.time,
+                        active = entry.index == state.selectedRouteIndex,
+                        onClick = { onSelectRoute(entry.index) },
+                    )
+                    if (position != sorted.lastIndex) {
                         Spacer(Modifier.height(6.dp))
                     }
                 }
@@ -1067,6 +1087,29 @@ private fun RouteCard(
                 color = AppTextMuted,
             )
         }
+    }
+}
+
+/**
+ * Kleiner Umschalter fuer die Sortierung der Vorschlagsliste (hellrot umrandet,
+ * wenn aktiv).
+ */
+@Composable
+private fun SortPill(label: String, selected: Boolean, onClick: () -> Unit) {
+    Surface(
+        shape = RoundedCornerShape(50),
+        color = if (selected) AppPrimary.copy(alpha = 0.2f) else AppSurfaceVariant.copy(alpha = 0.5f),
+        border = BorderStroke(1.dp, if (selected) AppPrimary else AppTextMuted.copy(alpha = 0.4f)),
+        modifier = Modifier
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick),
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) AppText else AppTextMuted,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 

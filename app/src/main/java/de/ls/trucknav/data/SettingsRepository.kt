@@ -26,6 +26,7 @@ data class AppSettings(
     val tankpoolPois: Boolean = false,
     val heightWarnings: Boolean = true,
     val mapStyleMode: MapStyleMode = MapStyleMode.AUTO,
+    val routeSort: RouteSort = RouteSort.DURATION,
     val favorites: List<Place> = emptyList(),
     val history: List<Place> = emptyList(),
 )
@@ -53,6 +54,7 @@ class SettingsRepository(private val context: Context) {
         val TANKPOOL_POIS = booleanPreferencesKey("tankpool_pois")
         val HEIGHT_WARNINGS = booleanPreferencesKey("height_warnings")
         val MAP_STYLE_MODE = stringPreferencesKey("map_style_mode")
+        val ROUTE_SORT = stringPreferencesKey("route_sort")
         val FAVORITES = stringPreferencesKey("favorites")
         val HISTORY = stringPreferencesKey("history")
     }
@@ -86,6 +88,9 @@ class SettingsRepository(private val context: Context) {
             mapStyleMode = p[Keys.MAP_STYLE_MODE]
                 ?.let { name -> MapStyleMode.entries.firstOrNull { it.name == name } }
                 ?: MapStyleMode.AUTO,
+            routeSort = p[Keys.ROUTE_SORT]
+                ?.let { name -> RouteSort.entries.firstOrNull { it.name == name } }
+                ?: RouteSort.DURATION,
             favorites = PlaceCodec.decode(p[Keys.FAVORITES]),
             history = PlaceCodec.decode(p[Keys.HISTORY]),
         )
@@ -144,6 +149,10 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveMapStyleMode(mode: MapStyleMode) {
         context.settingsStore.edit { p -> p[Keys.MAP_STYLE_MODE] = mode.name }
+    }
+
+    suspend fun saveRouteSort(sort: RouteSort) {
+        context.settingsStore.edit { p -> p[Keys.ROUTE_SORT] = sort.name }
     }
 
     suspend fun saveFavorites(favorites: List<Place>) {

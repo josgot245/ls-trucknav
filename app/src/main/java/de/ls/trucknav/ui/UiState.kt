@@ -2,6 +2,7 @@ package de.ls.trucknav.ui
 
 import de.ls.trucknav.data.MapStyleMode
 import de.ls.trucknav.data.MapStyles
+import de.ls.trucknav.data.RouteSort
 import de.ls.trucknav.data.SettingsRepository
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.data.VehicleMode
@@ -83,6 +84,9 @@ data class UiState(
 
     /** Index der ausgewaehlten Route in [routeOptions]. */
     val selectedRouteIndex: Int = 0,
+
+    /** Sortierung der Vorschlagsliste (schnellste oder kuerzeste zuerst). */
+    val routeSort: RouteSort = RouteSort.DURATION,
 
     val routing: Boolean = false,
     val routeError: String? = null,
