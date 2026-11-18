@@ -61,23 +61,44 @@ data class LaneGuide(
 }
 
 /**
+ * Strassenklasse einer Kennung nach StVO. Sie bestimmt die Grundfarbe der
+ * Beschilderung: Autobahn blau/weiss, Bundes-, Land- und Kreisstrasse
+ * gelb/schwarz, Europastrasse gruen/weiss.
+ */
+enum class RoadClass {
+    AUTOBAHN,
+    BUNDESSTRASSE,
+    LANDSTRASSE,
+    KREISSTRASSE,
+    EUROPASTRASSE,
+    OTHER,
+}
+
+/** Eine Strassennummer auf einem Schild (z. B. "A 3") samt ihrer Klasse. */
+data class RoadRef(
+    val text: String,
+    val roadClass: RoadClass,
+)
+
+/**
  * Generierte Beschilderung einer Ausfahrt/Verzweigung.
  * Alle Angaben stammen aus OpenStreetMap und ersetzen keine reale Beschilderung.
  */
 data class JunctionSign(
     /** Ausfahrtsnummer, z. B. "22". */
     val exitNumber: String?,
-    /** Strassennummern der Richtung, z. B. "A 94" oder "B 27". */
-    val branch: List<String> = emptyList(),
+    /** Strassennummern der Zielrichtung (eingebettete Logos), z. B. "A 94". */
+    val branch: List<RoadRef> = emptyList(),
     /** Zielorte auf dem Schild (Richtung). */
     val toward: List<String>,
     /** Name der Ausfahrt, falls vorhanden. */
     val name: String?,
     /**
-     * true = Autobahn (blaues Schild), false = Bundes-/Land-/Kreisstrasse
-     * (gelbes Schild). Siehe StVO-Beschilderung.
+     * Klasse der Strasse, auf der man sich beim Manoever befindet. Sie
+     * bestimmt die Grundfarbe des Schilds – nicht die Zielstrasse, deren
+     * Nummern als eingebettete Logos erscheinen.
      */
-    val highway: Boolean = false,
+    val currentRoad: RoadClass = RoadClass.OTHER,
 )
 
 /** Ein Fahranweisungsschritt aus der Route. */
@@ -94,6 +115,11 @@ data class Maneuver(
     val lanes: List<LaneGuide> = emptyList(),
     /** Beschilderung der Verzweigung (null, wenn unbekannt). */
     val sign: JunctionSign? = null,
+    /**
+     * Bei Kreisverkehren die zu nehmende Ausfahrt (1 = erste). Null, wenn
+     * unbekannt oder kein Kreisverkehr.
+     */
+    val roundaboutExit: Int? = null,
 )
 
 /** Ein stationaerer Blitzer aus OpenStreetMap. */

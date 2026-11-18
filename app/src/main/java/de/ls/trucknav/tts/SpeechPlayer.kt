@@ -43,7 +43,7 @@ class SpeechPlayer(context: Context) {
                 }
                 ready = true
                 synchronized(pending) {
-                    while (pending.isNotEmpty()) speakNow(pending.removeFirst())
+                    while (pending.isNotEmpty()) speakNow(pending.removeFirst(), flush = false)
                 }
             }
         }
@@ -54,13 +54,19 @@ class SpeechPlayer(context: Context) {
         if (!value) tts?.stop()
     }
 
-    fun speak(text: String) {
+    /**
+     * Spricht [text]. Mit [flush] = true werden noch nicht gesprochene bzw.
+     * gerade laufende Ansagen verworfen, damit sich Fahranweisungen nicht
+     * ueberschneiden oder aufstauen.
+     */
+    fun speak(text: String, flush: Boolean = false) {
         if (!enabled || text.isBlank()) return
         if (ready) {
-            speakNow(text)
+            speakNow(text, flush)
         } else {
             synchronized(pending) {
-                if (pending.size < 3) pending.addLast(text)
+                if (flush) pending.clear()
+                if (pending.size < MAX_PENDING) pending.addLast(text)
             }
         }
     }
@@ -77,7 +83,13 @@ class SpeechPlayer(context: Context) {
         ready = false
     }
 
-    private fun speakNow(text: String) {
-        tts?.speak(text, TextToSpeech.QUEUE_ADD, null, "nav-${System.nanoTime()}")
+    private fun speakNow(text: String, flush: Boolean) {
+        val mode = if (flush) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+        tts?.speak(text, mode, null, "nav-${System.nanoTime()}")
+    }
+
+    private companion object {
+        /** Hoechstzahl gepufferter Ansagen, bevor die TTS-Engine bereit ist. */
+        const val MAX_PENDING = 3
     }
 }

@@ -242,7 +242,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
 
         navUpdate?.let { update ->
-            update.announcement?.let { speech.speak(it) }
+            val announcement = update.announcement
+            if (announcement != null) {
+                // Fahranweisungen verwerfen aeltere, noch nicht gesprochene
+                // Ansagen, damit sie sich nicht aufstauen.
+                speech.speak(announcement, flush = true)
+            } else if (update.flushSpeech) {
+                // Passiertes Manoever: veraltete Ansagen sofort verwerfen.
+                speech.stop()
+            }
             if (update.offRoute) {
                 maybeRecalculate()
             } else {
@@ -1143,7 +1151,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         resetTruckInfo()
         val initial = engine.initialUpdate()
         _state.update {
-            it.copy(navActive = true, arrived = false, nav = initial, showSearch = false)
+            it.copy(
+                navActive = true,
+                arrived = false,
+                nav = initial,
+                showSearch = false,
+                // Nach dem Start der Zielfuehrung werden die nicht gewaehlten
+                // Routenvorschlaege nicht mehr angezeigt (weder als Liste noch
+                // als Linie auf der Karte).
+                routeOptions = emptyList(),
+                selectedRouteIndex = 0,
+            )
         }
         refreshTankpoolListIfOpen()
         (route.destination ?: _state.value.destination)?.let { recordHistory(it) }

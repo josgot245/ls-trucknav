@@ -48,6 +48,8 @@ fun TruckMapView(
     controls: MapControls = remember { MapControls() },
     topPadding: Dp = 150.dp,
     bottomPadding: Dp = 250.dp,
+    startPadding: Dp = 0.dp,
+    endPadding: Dp = 0.dp,
     onPoiTap: (TruckPoi?) -> Unit = {},
 ) {
     val context = LocalContext.current
@@ -226,13 +228,22 @@ fun TruckMapView(
     // Verschieben pausiert das Folgen, bis "zentrieren"/Kompass gedrueckt wird.
     // styleGeneration in den Keys: nach einem Stilwechsel (Tag/Nacht) sind die
     // Quellen leer, der Loop startet neu und setzt den Pfeil sofort wieder.
-    LaunchedEffect(styleReady, styleGeneration, mapHolder.value, state.navActive, topPadding, bottomPadding) {
+    LaunchedEffect(styleReady, styleGeneration, mapHolder.value, state.navActive, topPadding, bottomPadding, startPadding, endPadding) {
         if (!styleReady) return@LaunchedEffect
         val map = mapHolder.value ?: return@LaunchedEffect
 
         val topPaddingPx = with(density) { topPadding.roundToPx() }
         val bottomPaddingPx = with(density) { bottomPadding.roundToPx() }
-        map.setPadding(0, topPaddingPx, 0, bottomPaddingPx)
+        val startPaddingPx = with(density) { startPadding.roundToPx() }
+        val endPaddingPx = with(density) { endPadding.roundToPx() }
+        map.setPadding(startPaddingPx, topPaddingPx, endPaddingPx, bottomPaddingPx)
+        // Reihenfolge wie in CameraPosition.padding: links, oben, rechts, unten.
+        val cameraPadding = doubleArrayOf(
+            startPaddingPx.toDouble(),
+            topPaddingPx.toDouble(),
+            endPaddingPx.toDouble(),
+            bottomPaddingPx.toDouble(),
+        )
 
         var camLat = Double.NaN
         var camLon = Double.NaN
@@ -335,7 +346,15 @@ fun TruckMapView(
                         appliedLon = camLon
                         appliedBearing = camBearing
                         appliedZoom = camZoom
-                        MapCamera.followPosition(map, camLat, camLon, camBearing, camZoom, camTilt)
+                        MapCamera.followPosition(
+                            map,
+                            camLat,
+                            camLon,
+                            camBearing,
+                            camZoom,
+                            camTilt,
+                            cameraPadding,
+                        )
                     }
                     // Pfeil an derselben interpolierten Stelle zeichnen wie
                     // die Kamera. Dadurch bleibt er ruhig im Bildmittelpunkt
@@ -357,27 +376,42 @@ fun TruckMapView(
         state.location,
         topPadding,
         bottomPadding,
+        startPadding,
+        endPadding,
     ) {
         if (!styleReady || state.navActive) return@LaunchedEffect
         val map = mapHolder.value ?: return@LaunchedEffect
 
         val topPaddingPx = with(density) { topPadding.roundToPx() }
         val bottomPaddingPx = with(density) { bottomPadding.roundToPx() }
+        val startPaddingPx = with(density) { startPadding.roundToPx() }
+        val endPaddingPx = with(density) { endPadding.roundToPx() }
         val sidePadding = with(density) { 24.dp.roundToPx() }
+        val cameraPadding = doubleArrayOf(
+            startPaddingPx.toDouble(),
+            topPaddingPx.toDouble(),
+            endPaddingPx.toDouble(),
+            bottomPaddingPx.toDouble(),
+        )
 
         val route = state.route
         if (route != null && route !== lastFittedRoute) {
             lastFittedRoute = route
             centeredOnce = true
             followEnabled.value = false
-            map.setPadding(sidePadding, topPaddingPx, sidePadding, bottomPaddingPx)
+            map.setPadding(
+                startPaddingPx + sidePadding,
+                topPaddingPx,
+                endPaddingPx + sidePadding,
+                bottomPaddingPx,
+            )
             MapCamera.fitRoute(map, route)
         } else if (state.location != null && !centeredOnce) {
             centeredOnce = true
             // Nur wenn das Folgen pausiert ist, muss die Kamera aktiv gesetzt
             // werden; sonst uebernimmt der Frame-Loop.
             if (!followEnabled.value) {
-                MapCamera.center(map, state.location)
+                MapCamera.center(map, state.location, padding = cameraPadding)
             }
         }
     }

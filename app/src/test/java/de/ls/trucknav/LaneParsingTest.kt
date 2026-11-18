@@ -1,7 +1,10 @@
 package de.ls.trucknav
 
+import de.ls.trucknav.model.RoadClass
+import de.ls.trucknav.net.dominantRoadClass
 import de.ls.trucknav.net.parseManeuverLanes
 import de.ls.trucknav.net.parseManeuverSign
+import de.ls.trucknav.net.roadClassOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
@@ -77,7 +80,7 @@ class LaneParsingTest {
     }
 
     @Test
-    fun parsesBranchRoadNumbers() {
+    fun parsesBranchRoadNumbersWithClasses() {
         // So liefert Valhalla die Strassennummern der Richtung.
         val maneuver = obj(
             """
@@ -87,80 +90,75 @@ class LaneParsingTest {
             }}
             """.trimIndent()
         )
-        val sign = parseManeuverSign(maneuver)!!
-        assertEquals(listOf("A 94", "A 9"), sign.branch)
-        assertTrue(sign.highway)
+        val sign = parseManeuverSign(maneuver, RoadClass.BUNDESSTRASSE)!!
+        assertEquals(listOf("A 94", "A 9"), sign.branch.map { it.text })
+        assertTrue(sign.branch.all { it.roadClass == RoadClass.AUTOBAHN })
+        // Grundfarbe = Strasse, auf der man sich befindet, nicht die Zielstrasse.
+        assertEquals(RoadClass.BUNDESSTRASSE, sign.currentRoad)
     }
 
     @Test
-    fun exitNumberAloneIsNotHighway() {
+    fun baseColorFollowsCurrentRoadNotBranch() {
+        // Auf der Autobahn, Ausfahrt auf eine Bundesstrasse: Schild blau,
+        // eingebettetes gelbes Bundesstrassen-Logo.
+        val exit = obj(
+            """
+            {"sign":{
+              "exit_number_elements":[{"text":"22"}],
+              "exit_branch_elements":[{"text":"B 6"}],
+              "exit_toward_elements":[{"text":"Neuss"}]
+            }}
+            """.trimIndent()
+        )
+        val exitSign = parseManeuverSign(exit, RoadClass.AUTOBAHN)!!
+        assertEquals(RoadClass.AUTOBAHN, exitSign.currentRoad)
+        assertEquals(RoadClass.BUNDESSTRASSE, exitSign.branch.single().roadClass)
+
+        // Auf der Bundesstrasse, Auffahrt auf eine Autobahn: Schild gelb,
+        // eingebettetes blaues Autobahn-Logo.
+        val entry = obj(
+            """
+            {"sign":{
+              "exit_branch_elements":[{"text":"A 27"}],
+              "exit_toward_elements":[{"text":"Bremen"}]
+            }}
+            """.trimIndent()
+        )
+        val entrySign = parseManeuverSign(entry, RoadClass.BUNDESSTRASSE)!!
+        assertEquals(RoadClass.BUNDESSTRASSE, entrySign.currentRoad)
+        assertEquals(RoadClass.AUTOBAHN, entrySign.branch.single().roadClass)
+    }
+
+    @Test
+    fun exitNumberAloneKeepsCurrentRoad() {
         // Nummerierte Knotenpunkte gibt es auch an Bundes-/Land-/Kreisstrassen:
         // das Schild bleibt dann gelb/schwarz.
         val maneuver = obj("""{"sign":{"exit_number_elements":[{"text":"22"}]}}""")
-        assertFalse(parseManeuverSign(maneuver)!!.highway)
+        assertEquals(
+            RoadClass.LANDSTRASSE,
+            parseManeuverSign(maneuver, RoadClass.LANDSTRASSE)!!.currentRoad,
+        )
     }
 
     @Test
-    fun bundesstrasseWithExitNumberIsNotHighway() {
-        val maneuver = obj(
-            """
-            {"street_names":["B 27"],"sign":{
-              "exit_number_elements":[{"text":"4"}],
-              "exit_toward_elements":[{"text":"Tübingen"}]
-            }}
-            """.trimIndent()
-        )
-        val sign = parseManeuverSign(maneuver)!!
-        assertEquals("4", sign.exitNumber)
-        assertFalse(sign.highway)
+    fun classifiesRoadNumbers() {
+        assertEquals(RoadClass.AUTOBAHN, roadClassOf("A 3"))
+        assertEquals(RoadClass.AUTOBAHN, roadClassOf("A94"))
+        assertEquals(RoadClass.BUNDESSTRASSE, roadClassOf("B 27"))
+        assertEquals(RoadClass.LANDSTRASSE, roadClassOf("L 124"))
+        assertEquals(RoadClass.KREISSTRASSE, roadClassOf("K 6903"))
+        assertEquals(RoadClass.EUROPASTRASSE, roadClassOf("E 42"))
+        // Strassennamen ohne Nummer sind keine Klasse.
+        assertEquals(RoadClass.OTHER, roadClassOf("Berliner Straße"))
+        assertEquals(RoadClass.OTHER, roadClassOf(null))
     }
 
     @Test
-    fun autobahnBranchWinsOverHighwayFlag() {
-        // Autobahn-Ausfahrt mit Ziel auf einer Bundesstrasse: das Schild an der
-        // Autobahn bleibt blau, auch wenn die Richtung eine B-Nummer nennt.
-        val maneuver = obj(
-            """
-            {"highway":true,"sign":{
-              "exit_branch_elements":[{"text":"B 27"}],
-              "exit_toward_elements":[{"text":"Tübingen"}]
-            }}
-            """.trimIndent()
-        )
-        assertTrue(parseManeuverSign(maneuver)!!.highway)
-    }
-
-    @Test
-    fun highwayFlagOnManeuverImpliesHighway() {
-        val maneuver = obj(
-            """{"highway":true,"street_names":["A 94"],"sign":{"exit_toward_elements":[{"text":"Passau"}]}}"""
-        )
-        assertTrue(parseManeuverSign(maneuver)!!.highway)
-    }
-
-    @Test
-    fun autobahnStreetNameImpliesHighway() {
-        val maneuver = obj(
-            """{"street_names":["A 94"],"sign":{"exit_toward_elements":[{"text":"Passau"}]}}"""
-        )
-        assertTrue(parseManeuverSign(maneuver)!!.highway)
-    }
-
-    @Test
-    fun bundesstrasseIsNotHighway() {
-        val maneuver = obj(
-            """{"street_names":["B 28"],"sign":{"exit_toward_elements":[{"text":"Kusterdingen"}]}}"""
-        )
-        val sign = parseManeuverSign(maneuver)!!
-        assertFalse(sign.highway)
-        assertTrue(sign.branch.isEmpty())
-    }
-
-    @Test
-    fun kreisstrasseIsNotHighway() {
-        val maneuver = obj(
-            """{"street_names":["K 6903"],"sign":{"exit_toward_elements":[{"text":"Wankheim"}]}}"""
-        )
-        assertFalse(parseManeuverSign(maneuver)!!.highway)
+    fun dominantClassPrefersAutobahn() {
+        // Valhalla liefert bei Autobahnen oft "A 3" und "E 42" zusammen.
+        assertEquals(RoadClass.AUTOBAHN, dominantRoadClass(listOf("A 3", "E 42")))
+        assertEquals(RoadClass.BUNDESSTRASSE, dominantRoadClass(listOf("B 27", "E 42")))
+        assertEquals(RoadClass.LANDSTRASSE, dominantRoadClass(listOf("L 124", "Östliche Zubringerstraße")))
+        assertEquals(RoadClass.OTHER, dominantRoadClass(listOf("Hauptstraße", "Am Markt")))
     }
 }

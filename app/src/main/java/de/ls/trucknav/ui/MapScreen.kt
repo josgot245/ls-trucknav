@@ -16,16 +16,22 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -72,6 +78,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -79,6 +86,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -98,6 +107,8 @@ import de.ls.trucknav.model.JunctionSign
 import de.ls.trucknav.model.LaneGuide
 import de.ls.trucknav.model.Maneuver
 import de.ls.trucknav.model.Place
+import de.ls.trucknav.model.RoadClass
+import de.ls.trucknav.model.RoadRef
 import de.ls.trucknav.model.SpeedCamera
 import de.ls.trucknav.model.TrafficKind
 import de.ls.trucknav.model.TrafficWarning
@@ -184,23 +195,49 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             .fillMaxSize()
             .background(AppBackground)
     ) {
-        // Auf grossen Bildschirmen (Tablet/Querformat) werden die schwebenden
-        // Karten in der Breite begrenzt und zentriert, statt ueber die volle
-        // Breite gestreckt zu werden. Auf dem Handy bleibt alles unveraendert.
-        val panelWidth = if (maxWidth >= LARGE_SCREEN_MIN_WIDTH) {
+        // Im Querformat auf dem Handy (breit, aber niedrig) werden die
+        // schwebenden Karten links in einer Spalte angeordnet; rechts bleibt
+        // die Karte sichtbar. Sonst wirkt alles in die Bildschirmmitte
+        // gequetscht, waehrend links und rechts viel Flaeche leer bleibt.
+        val compactHeight = maxHeight < COMPACT_HEIGHT_MIN
+        val landscapeColumn = compactHeight && maxWidth >= LARGE_SCREEN_MIN_WIDTH
+        // Auf grossen Bildschirmen (Tablet) die Karten in der Breite begrenzen
+        // und zentrieren, statt ueber die volle Breite zu strecken.
+        val panelWidth = if (landscapeColumn || maxWidth >= LARGE_SCREEN_MIN_WIDTH) {
             Modifier.widthIn(max = PANEL_MAX_WIDTH)
         } else {
             Modifier
         }
-        // Im Querformat bzw. auf niedrigen Bildschirmen bleibt weniger Hoehe:
-        // kleinere Karten-Abstaende und scrollbare Bedienkarten, damit sich die
-        // Elemente nicht ueberlagern.
-        val compactHeight = maxHeight < COMPACT_HEIGHT_MIN
-        val mapTopPadding = if (compactHeight) 96.dp else 150.dp
+        val topPanelAlignment = if (landscapeColumn) Alignment.TopStart else Alignment.TopCenter
+        val bottomPanelAlignment = if (landscapeColumn) Alignment.BottomStart else Alignment.BottomCenter
+        // Im Querformat belegt die linke Spalte die halbe Breite: die Karte
+        // wird entsprechend nach rechts verschoben, damit die eigene Position
+        // neben den Karten und nicht dahinter liegt.
+        val mapStartPadding = if (landscapeColumn) PANEL_MAX_WIDTH else 0.dp
+        // Im Querformat (bzw. auf niedrigen Bildschirmen) teilen sich die obere
+        // und die untere Karte die Hoehe. Beide werden auf denselben Anteil
+        // begrenzt – abzueglich eines Puffers fuer Status-/Navigationsleiste und
+        // Innenabstaende – damit sie sich nicht ueberlagern und dazwischen noch
+        // ein Stueck Karte sichtbar bleibt.
+        val compactPanelMax = (maxHeight * 0.5f - 56.dp).coerceAtLeast(120.dp)
+        // Fuer den Kartenabstand wird die tatsaechlich gemessene Hoehe der
+        // schwebenden Karten verwendet. So bleibt die eigene Position im freien
+        // Streifen zwischen beiden Karten sichtbar und die Karte behaelt
+        // trotzdem so viel Flaeche wie moeglich (statt pauschal um die
+        // Obergrenze beider Karten verkleinert zu werden). Vor der ersten
+        // Messung dient die Obergrenze als Naeherung.
+        val density = LocalDensity.current
+        var topPanelHeight by remember { mutableStateOf(0.dp) }
+        var bottomPanelHeight by remember { mutableStateOf(0.dp) }
+        val mapTopPadding = when {
+            !compactHeight -> 150.dp
+            topPanelHeight > 0.dp -> topPanelHeight + 8.dp
+            else -> compactPanelMax
+        }
         val mapBottomPadding = when {
-            compactHeight -> 140.dp
-            state.navActive -> 190.dp
-            else -> 250.dp
+            !compactHeight -> if (state.navActive) 190.dp else 250.dp
+            bottomPanelHeight > 0.dp -> bottomPanelHeight + 8.dp
+            else -> compactPanelMax
         }
 
         TruckMapView(
@@ -210,6 +247,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             controls = mapControls,
             topPadding = mapTopPadding,
             bottomPadding = mapBottomPadding,
+            startPadding = mapStartPadding,
             onPoiTap = viewModel::selectPoi,
         )
 
@@ -220,6 +258,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(top = if (compactHeight) 52.dp else 78.dp, end = 18.dp),
         )
 
@@ -231,21 +270,22 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
                 onToggleMode = viewModel::toggleVehicleMode,
                 onClear = viewModel::clearDestination,
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(topPanelAlignment)
                     .then(panelWidth),
             )
         } else {
             Column(
                 modifier = Modifier
-                    .align(Alignment.TopCenter)
+                    .align(topPanelAlignment)
                     .then(panelWidth)
                     .fillMaxWidth()
+                    .onSizeChanged { topPanelHeight = (it.height / density.density).dp }
                     .statusBarsPadding()
                     .padding(horizontal = 12.dp, vertical = 8.dp)
                     .then(
                         if (compactHeight) {
                             Modifier
-                                .heightIn(max = maxHeight * 0.5f)
+                                .heightIn(max = compactPanelMax)
                                 .verticalScroll(rememberScrollState())
                         } else {
                             Modifier
@@ -271,15 +311,19 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
 
         Column(
             modifier = Modifier
-                .align(Alignment.BottomCenter)
+                .align(bottomPanelAlignment)
                 .then(panelWidth)
                 .fillMaxWidth()
-                .navigationBarsPadding()
+                .onSizeChanged { bottomPanelHeight = (it.height / density.density).dp }
+                // Nur die untere Navigationsleiste beruecksichtigen: im
+                // Querformat sitzt sie seitlich, und ein seitlicher Abstand
+                // wuerde die zentrierte Karte unsymmetrisch verschieben.
+                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
                 .padding(12.dp)
                 .then(
                     if (compactHeight) {
                         Modifier
-                            .heightIn(max = maxHeight * 0.6f)
+                            .heightIn(max = compactPanelMax)
                             .verticalScroll(rememberScrollState())
                     } else {
                         Modifier
@@ -376,6 +420,11 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             onTankpool = viewModel::openTankpoolList,
             modifier = Modifier
                 .align(Alignment.CenterEnd)
+                // Im Querformat sitzt die System-Navigationsleiste bzw. eine
+                // Display-Aussparung seitlich; ohne diese Abstaende laegen die
+                // Schaltflaechen darunter.
+                .navigationBarsPadding()
+                .displayCutoutPadding()
                 .padding(end = 12.dp),
         )
 
@@ -383,7 +432,7 @@ fun MapScreen(viewModel: MainViewModel = viewModel()) {
             hostState = snackbarHostState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
+                .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
                 .padding(
                     bottom = if (compactHeight) 150.dp else 220.dp,
                     start = 16.dp,
@@ -765,11 +814,11 @@ private fun InstructionCard(state: UiState) {
                     .background(AppPrimary),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    imageVector = maneuverIcon(maneuver?.type ?: 0),
-                    contentDescription = null,
+                ManeuverGlyph(
+                    type = maneuver?.type ?: 0,
+                    roundaboutExit = maneuver?.roundaboutExit,
+                    size = 38.dp,
                     tint = Color.White,
-                    modifier = Modifier.size(38.dp),
                 )
             }
             Spacer(Modifier.width(14.dp))
@@ -890,19 +939,17 @@ private fun LaneRow(lanes: List<LaneGuide>) {
 }
 
 /**
- * Generiertes Schild: Autobahnen blau/weiss, Bundes-, Land- und Kreisstrassen
- * gelb/schwarz (StVO-Beschilderung).
+ * Generiertes Schild: Die Grundfarbe richtet sich nach der Strasse, auf der
+ * man sich befindet; die Nummern der Zielstrasse erscheinen als eingebettete
+ * Logos in ihrer eigenen Farbe (StVO-Beschilderung).
  */
 @Composable
 private fun JunctionSignView(sign: JunctionSign) {
-    val background = if (sign.highway) AutobahnBlue else BundesYellow
-    val borderColor = if (sign.highway) Color.White else Color.Black
-    val textColor = if (sign.highway) Color.White else Color.Black
-    val chipTextColor = if (sign.highway) AutobahnBlue else Color.Black
+    val (background, onBase) = roadClassColors(sign.currentRoad)
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = background,
-        border = BorderStroke(2.dp, borderColor),
+        border = BorderStroke(2.dp, onBase),
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -926,19 +973,8 @@ private fun JunctionSignView(sign: JunctionSign) {
             Column {
                 if (sign.branch.isNotEmpty()) {
                     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                        sign.branch.forEach { number ->
-                            Surface(
-                                shape = RoundedCornerShape(4.dp),
-                                color = Color.White,
-                            ) {
-                                Text(
-                                    text = number,
-                                    style = MaterialTheme.typography.labelLarge,
-                                    fontWeight = FontWeight.Bold,
-                                    color = chipTextColor,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
-                                )
-                            }
+                        sign.branch.forEach { ref ->
+                            RoadBadge(ref)
                         }
                     }
                     Spacer(Modifier.height(4.dp))
@@ -949,7 +985,7 @@ private fun JunctionSignView(sign: JunctionSign) {
                         text = "Ausfahrt",
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.Bold,
-                        color = textColor,
+                        color = onBase,
                     )
                 } else {
                     targets.forEach { target ->
@@ -957,7 +993,7 @@ private fun JunctionSignView(sign: JunctionSign) {
                             text = target,
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
-                            color = textColor,
+                            color = onBase,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
@@ -966,6 +1002,38 @@ private fun JunctionSignView(sign: JunctionSign) {
             }
         }
     }
+}
+
+/** Eingebettetes Strassennummern-Logo (z. B. gelbes "B 6" oder blaues "A 27"). */
+@Composable
+private fun RoadBadge(ref: RoadRef) {
+    val (chipBackground, chipText) = roadClassColors(ref.roadClass)
+    Surface(
+        shape = RoundedCornerShape(4.dp),
+        color = chipBackground,
+        border = BorderStroke(1.dp, chipText),
+    ) {
+        Text(
+            text = ref.text,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = chipText,
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+        )
+    }
+}
+
+/** Grundfarbe und Schriftfarbe einer Strassenklasse (StVO-Beschilderung). */
+private fun roadClassColors(roadClass: RoadClass): Pair<Color, Color> = when (roadClass) {
+    RoadClass.AUTOBAHN -> AutobahnBlue to Color.White
+    RoadClass.EUROPASTRASSE -> EuropaGreen to Color.White
+    // Bundes-, Land- und Kreisstrassen sind gelb/schwarz; ohne Kennung bleibt
+    // es ebenfalls beim gelben Schild.
+    RoadClass.BUNDESSTRASSE,
+    RoadClass.LANDSTRASSE,
+    RoadClass.KREISSTRASSE,
+    RoadClass.OTHER,
+    -> BundesYellow to Color.Black
 }
 
 /** Fahrtrichtung (Bitmaske) -> passendes Material-Symbol. */
@@ -1693,3 +1761,6 @@ private val AutobahnBlue = Color(0xFF1A4FA0)
 
 /** Farbe des generierten Bundes-/Land-/Kreisstrassen-Schilds (StVO-Gelb). */
 private val BundesYellow = Color(0xFFF2C200)
+
+/** Farbe des generierten Europastrassen-Schilds (StVO-Gruen). */
+private val EuropaGreen = Color(0xFF00713C)

@@ -35,6 +35,12 @@ object MapIconFactory {
     const val TANKPOOL24 = "ls-icon-tankpool24"
     const val HEIGHT = "ls-icon-height"
 
+    /** Strassenschild-Hintergruende fuer die Karten-Badges (nach Klasse). */
+    const val ROAD_SHIELD_A = "ls-shield-a"
+    const val ROAD_SHIELD_B = "ls-shield-b"
+    const val ROAD_SHIELD_E = "ls-shield-e"
+    const val ROAD_SHIELD_DEFAULT = "ls-shield-default"
+
     private const val WHITE = 0xFFFFFFFF.toInt()
     private const val INK = 0xFF161616.toInt()
     private const val POI_BLUE = 0xFF3DA5FF.toInt()
@@ -71,6 +77,42 @@ object MapIconFactory {
         icon(FUEL) { c, s -> badge(c, s, POI_PURPLE, WHITE); pump(c, s, WHITE, POI_PURPLE) }
         icon(TANKPOOL24) { c, s -> tankpool(c, s, tankpoolLogo) }
         icon(HEIGHT) { c, s -> badge(c, s, WHITE, RED); letter(c, s, "m", INK) }
+    }
+
+    /**
+     * Registriert die Hintergruende der Strassenschilder fuer die Karten-Badges.
+     * Die Schilder werden per `icon-text-fit` auf die Nummer gedehnt und nach
+     * Strassenklasse eingefaerbt (Autobahn blau, Bundes-/Land-/Kreisstrasse
+     * gelb, Europastrasse gruen).
+     */
+    fun addRoadShields(style: Style, context: Context) {
+        val metrics = context.resources.displayMetrics
+        val width = (56 * metrics.density).toInt().coerceAtLeast(40)
+        val height = (40 * metrics.density).toInt().coerceAtLeast(28)
+
+        fun shield(id: String, fill: Int, border: Int) {
+            if (style.getImage(id) != null) return
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap.density = metrics.densityDpi
+            val canvas = Canvas(bitmap)
+            val stroke = height * 0.09f
+            val rect = RectF(stroke / 2f, stroke / 2f, width - stroke / 2f, height - stroke / 2f)
+            val radius = height * 0.30f
+            val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+            paint.style = Paint.Style.FILL
+            paint.color = fill
+            canvas.drawRoundRect(rect, radius, radius, paint)
+            paint.style = Paint.Style.STROKE
+            paint.strokeWidth = stroke
+            paint.color = border
+            canvas.drawRoundRect(rect, radius, radius, paint)
+            style.addImage(id, bitmap)
+        }
+
+        shield(ROAD_SHIELD_A, 0xFF1A4FA0.toInt(), WHITE)
+        shield(ROAD_SHIELD_B, 0xFFF2C200.toInt(), INK)
+        shield(ROAD_SHIELD_E, 0xFF00713C.toInt(), WHITE)
+        shield(ROAD_SHIELD_DEFAULT, WHITE, INK)
     }
 
     /** Laedt das mitgelieferte Tankpool24-Logo in der Symbolgroesse. */

@@ -14,6 +14,7 @@ import de.ls.trucknav.model.TrafficWarning
 import de.ls.trucknav.model.TruckPoi
 import de.ls.trucknav.model.TruckPoiKind
 import de.ls.trucknav.ui.UiState
+import de.ls.trucknav.util.distanceToPolylineMeters
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
@@ -90,6 +91,18 @@ object MapLayers {
     private const val HEIGHT_SOURCE = "ls-heights"
     private const val HEIGHT_LAYER = "ls-heights-layer"
 
+    /** Eigene, farbige Strassennummern-Badges (ueber der Route). */
+    private const val SHIELD_LAYER = "ls-road-shield"
+    private const val SHIELD_SOURCE = "openmaptiles"
+    private const val SHIELD_SOURCE_LAYER = "transportation_name"
+
+    /**
+     * Maximaler Abstand einer Durchfahrtshoehe zur Route, damit sie auf der
+     * Karte erscheint. Muss zu `MainViewModel.HEIGHT_ROUTE_TOLERANCE_M`
+     * passen, damit Marker und Warnung dieselben Bruecken zeigen.
+     */
+    private const val HEIGHT_ROUTE_TOLERANCE_M = 40.0
+
     /**
      * Registriert den Richtungspfeil als Bild im Stil. Muss vor [install]
      * aufgerufen werden, da die Symbol-Ebene das Bild referenziert.
@@ -130,6 +143,8 @@ object MapLayers {
     fun install(style: org.maplibre.android.maps.Style, context: Context) {
         // Symbole (Ziel, Blitzer, Verkehr, POIs, Hoehen) als Bitmaps anlegen.
         MapIconFactory.addAll(style, context)
+        // Hintergruende der farbigen Strassenschilder fuer die Karten-Badges.
+        MapIconFactory.addRoadShields(style, context)
         // Nach einem Stilwechsel sind die Quellen neu und leer: Erneut befuellen.
         lastRouteRef = null
         lastAltOptions = null
@@ -139,6 +154,8 @@ object MapLayers {
         lastTraffic = null
         lastPois = null
         lastHeights = null
+        lastHeightsIn = null
+        lastHeightsRoute = null
 
         style.addSource(GeoJsonSource(ROUTE_SOURCE, emptyCollection()))
         style.addSource(GeoJsonSource(ROUTE_ALT_SOURCE, emptyCollection()))
@@ -281,11 +298,71 @@ object MapLayers {
                 PropertyFactory.iconRotate(Expression.get(BEARING_PROPERTY)),
             )
         )
+        // Farbige Strassennummern-Badges: ueber der Route, aber unter dem
+        // eigenen Positionspfeil.
+        installRoadShields(style)
         // Beim Aktualisieren der Symbolquellen (z. B. jede GPS-Position) wuerde
         // MapLibre die Symbole sonst aus- und wieder einblenden ("Blinken").
         // Die Platzierungs-Uebergaenge werden daher fuer alle Symbol-Ebenen
         // abgeschaltet, damit Marker sofort an der neuen Stelle erscheinen.
         disableSymbolFades(style)
+    }
+
+    /**
+     * Ersetzt die (weissen) Strassenschilder des Kartenstils durch eigene,
+     * nach Strassenklasse eingefaerbte Badges. Die eigenen Badges liegen ueber
+     * der Routenlinie, damit die Strassennummer waehrend der Fuehrung sichtbar
+     * bleibt.
+     */
+    private fun installRoadShields(style: Style) {
+        // Vorhandene Schilder des Stils ausblenden (ID enthaelt "shield").
+        style.layers.forEach { layer ->
+            if (layer.id.contains("shield", ignoreCase = true)) {
+                (layer as? SymbolLayer)?.setProperties(PropertyFactory.visibility("none"))
+            }
+        }
+        if (style.getSource(SHIELD_SOURCE) == null) return
+
+        // Erster Buchstabe der Nummer entscheidet ueber Farbe/Logo.
+        val firstLetter = Expression.slice(
+            Expression.get("ref"),
+            Expression.literal(0),
+            Expression.literal(1),
+        )
+        val shieldImage = Expression.match(
+            firstLetter,
+            Expression.literal("A"), Expression.literal(MapIconFactory.ROAD_SHIELD_A),
+            Expression.literal("B"), Expression.literal(MapIconFactory.ROAD_SHIELD_B),
+            Expression.literal("L"), Expression.literal(MapIconFactory.ROAD_SHIELD_B),
+            Expression.literal("K"), Expression.literal(MapIconFactory.ROAD_SHIELD_B),
+            Expression.literal("E"), Expression.literal(MapIconFactory.ROAD_SHIELD_E),
+            Expression.literal(MapIconFactory.ROAD_SHIELD_DEFAULT),
+        )
+        val shieldTextColor = Expression.match(
+            firstLetter,
+            Expression.literal("A"), Expression.literal("#FFFFFF"),
+            Expression.literal("E"), Expression.literal("#FFFFFF"),
+            Expression.literal("#111111"),
+        )
+        val layer = SymbolLayer(SHIELD_LAYER, SHIELD_SOURCE)
+        layer.setSourceLayer(SHIELD_SOURCE_LAYER)
+        layer.setFilter(Expression.has("ref"))
+        layer.minZoom = 8f
+        layer.setProperties(
+            PropertyFactory.iconImage(shieldImage),
+            PropertyFactory.textField(Expression.get("ref")),
+            PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+            PropertyFactory.textSize(11f),
+            PropertyFactory.textColor(shieldTextColor),
+            PropertyFactory.iconTextFit("both"),
+            PropertyFactory.iconTextFitPadding(arrayOf(4f, 3f, 4f, 3f)),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true),
+            PropertyFactory.textAllowOverlap(true),
+            PropertyFactory.textIgnorePlacement(true),
+            PropertyFactory.textOptional(true),
+        )
+        style.addLayerBelow(layer, USER_LAYER)
     }
 
     private val SYMBOL_LAYERS = listOf(
@@ -295,6 +372,7 @@ object MapLayers {
         POI_LAYER,
         POI_LABEL_LAYER,
         HEIGHT_LAYER,
+        SHIELD_LAYER,
         USER_LAYER,
     )
 
@@ -318,7 +396,14 @@ object MapLayers {
         setCameras(style, if (state.cameraWarnings) state.cameras else emptyList())
         setTraffic(style, state.trafficWarnings)
         setPois(style, if (state.truckPoisEnabled) state.truckPois else emptyList())
-        setHeights(style, if (state.heightWarningsEnabled) state.heightRestrictions else emptyList())
+        // Sobald eine Route berechnet ist, werden nur Hoehen auf der Route
+        // angezeigt; sonst wuerden Bruecken abseits der Strecke als Warnung
+        // erscheinen.
+        setHeights(
+            style,
+            if (state.heightWarningsEnabled) state.heightRestrictions else emptyList(),
+            state.route?.points,
+        )
     }
 
     private var lastRouteRef: RouteResult? = null
@@ -329,6 +414,10 @@ object MapLayers {
     private var lastTraffic: List<TrafficWarning>? = null
     private var lastPois: List<TruckPoi>? = null
     private var lastHeights: List<HeightRestriction>? = null
+
+    /** Eingaben der letzten Hoehenberechnung (Referenzvergleich, s. [setHeights]). */
+    private var lastHeightsIn: List<HeightRestriction>? = null
+    private var lastHeightsRoute: List<GeoPoint>? = null
 
     private fun setRoute(style: org.maplibre.android.maps.Style, route: RouteResult?) {
         val source = style.getSourceAs<GeoJsonSource>(ROUTE_SOURCE) ?: return
@@ -481,15 +570,36 @@ object MapLayers {
     /** Eindeutige Kennung aus Art und Nummer. */
     private fun uidOf(poi: TruckPoi): String = "${kindId(poi.kind)}:${poi.id}"
 
-    private fun setHeights(style: org.maplibre.android.maps.Style, restrictions: List<HeightRestriction>) {
-        if (restrictions == lastHeights) return
-        lastHeights = restrictions
+    /**
+     * Zeigt Durchfahrtshoehen als Marker. Ist eine Route vorhanden, werden nur
+     * Beschraenkungen im nahen Umfeld der Route dargestellt. Da die Filterung
+     * teuer ist, wird sie nur bei geaenderten Eingaben (Referenzvergleich)
+     * erneut berechnet.
+     */
+    private fun setHeights(
+        style: org.maplibre.android.maps.Style,
+        restrictions: List<HeightRestriction>,
+        routePoints: List<GeoPoint>?,
+    ) {
+        if (restrictions === lastHeightsIn && routePoints === lastHeightsRoute) return
+        lastHeightsIn = restrictions
+        lastHeightsRoute = routePoints
+
+        val visible = if (routePoints == null || routePoints.size < 2) {
+            restrictions
+        } else {
+            restrictions.filter {
+                distanceToPolylineMeters(it.point, routePoints) <= HEIGHT_ROUTE_TOLERANCE_M
+            }
+        }
+        if (visible == lastHeights) return
+        lastHeights = visible
         val source = style.getSourceAs<GeoJsonSource>(HEIGHT_SOURCE) ?: return
-        if (restrictions.isEmpty()) {
+        if (visible.isEmpty()) {
             source.setGeoJson(emptyCollection())
             return
         }
-        val features = restrictions.map { restriction ->
+        val features = visible.map { restriction ->
             Feature.fromGeometry(Point.fromLngLat(restriction.point.lon, restriction.point.lat))
         }
         source.setGeoJson(FeatureCollection.fromFeatures(features))

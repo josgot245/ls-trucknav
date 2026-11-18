@@ -31,23 +31,34 @@ object MapCamera {
         bearing: Double,
         zoom: Double,
         tilt: Double = 45.0,
+        padding: DoubleArray? = null,
     ) {
-        val target = CameraPosition.Builder()
+        val builder = CameraPosition.Builder()
             .target(LatLng(lat, lon))
             .zoom(zoom)
             .tilt(tilt)
             .bearing(bearing)
-            .build()
-        map.moveCamera(CameraUpdateFactory.newCameraPosition(target))
+        // Das Padding muss bei jeder Kamerafahrt mitgegeben werden. Ein nur
+        // per setPadding() gesetzter Wert wird von moveCamera() nicht
+        // zuverlaessig uebernommen; dann zentriert die Kamera auf den
+        // geometrischen Mittelpunkt und der Pfeil verschwindet im Querformat
+        // hinter der linken Karte.
+        if (padding != null) builder.padding(padding)
+        map.moveCamera(CameraUpdateFactory.newCameraPosition(builder.build()))
     }
 
-    fun center(map: MapLibreMap, point: GeoPoint, zoom: Double = 15.5) {
-        val target = CameraPosition.Builder()
+    fun center(
+        map: MapLibreMap,
+        point: GeoPoint,
+        zoom: Double = 15.5,
+        padding: DoubleArray? = null,
+    ) {
+        val builder = CameraPosition.Builder()
             .target(LatLng(point.lat, point.lon))
             .zoom(zoom)
             .tilt(0.0)
             .bearing(0.0)
-            .build()
-        map.animateCamera(CameraUpdateFactory.newCameraPosition(target), 700)
+        if (padding != null) builder.padding(padding)
+        map.animateCamera(CameraUpdateFactory.newCameraPosition(builder.build()), 700)
     }
 }

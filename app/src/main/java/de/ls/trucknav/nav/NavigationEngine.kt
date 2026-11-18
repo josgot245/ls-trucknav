@@ -15,6 +15,12 @@ data class NavUpdate(
     val offRoute: Boolean,
     val arrived: Boolean,
     val announcement: String?,
+    /**
+     * true, wenn die Warteschlange der Sprachausgabe geleert werden soll
+     * (z. B. weil ein Manoever passiert wurde und dessen Ansagen nicht mehr
+     * abgespielt werden sollen).
+     */
+    val flushSpeech: Boolean = false,
 )
 
 /**
@@ -27,14 +33,24 @@ class NavigationEngine {
     private var geometry: RouteGeometry? = null
     private var progress = 0.0
     private var offRouteCount = 0
-    private val announced = HashSet<String>()
+
+    /**
+     * Pro Manoever die zuletzt angesagte Entfernungsstufe (0 = weiteste,
+     * 2 = naechste). Dadurch wird jede Stufe genau einmal angesagt – auch wenn
+     * die Geschwindigkeit um die Umschaltgrenze schwankt.
+     */
+    private val announcedStage = HashMap<Int, Int>()
+
+    /** Manoever, das zuletzt als naechstes anstand (Flush-Erkennung). */
+    private var lastManeuverIndex = -1
 
     fun setRoute(route: RouteResult) {
         this.route = route
         geometry = RouteGeometry(route.points)
         progress = 0.0
         offRouteCount = 0
-        announced.clear()
+        announcedStage.clear()
+        lastManeuverIndex = -1
     }
 
     fun clear() {
@@ -42,7 +58,8 @@ class NavigationEngine {
         geometry = null
         progress = 0.0
         offRouteCount = 0
-        announced.clear()
+        announcedStage.clear()
+        lastManeuverIndex = -1
     }
 
     fun initialUpdate(): NavUpdate? {
@@ -84,20 +101,33 @@ class NavigationEngine {
         val distanceTo = next?.let { (it.startDistance - progress).coerceAtLeast(0.0) } ?: remaining
 
         var announcement: String? = null
+        var flushSpeech = false
         if (next != null && !offRoute) {
-            val thresholds = if (speedMps > 19.0) {
-                doubleArrayOf(1000.0, 400.0, 120.0)
-            } else {
-                doubleArrayOf(500.0, 180.0, 60.0)
+            // Wurde das zuvor anstehende Manoever passiert, sind dessen Ansagen
+            // veraltet und werden verworfen, damit sie nicht nachtraeglich noch
+            // abgespielt werden.
+            if (next.index != lastManeuverIndex) {
+                if (announcedStage.containsKey(lastManeuverIndex)) flushSpeech = true
+                lastManeuverIndex = next.index
             }
-            val matching = thresholds.filter { distanceTo <= it }.sorted()
-            val fresh = matching.filter { announced.add("${next.index}:${it.toInt()}") }
-            if (fresh.isNotEmpty()) {
-                announcement = if (distanceTo > 120.0) {
+            val thresholds = if (speedMps > HIGH_SPEED_MPS) {
+                HIGH_SPEED_THRESHOLDS
+            } else {
+                LOW_SPEED_THRESHOLDS
+            }
+            // Stufe 0 = weiteste Ansage, 2 = unmittelbar vor dem Manoever.
+            // Die Schwellen sind absteigend sortiert; gesucht ist die letzte,
+            // die noch groesser/gleich der Restdistanz ist.
+            val stage = thresholds.indexOfLast { distanceTo <= it }
+            if (stage > (announcedStage[next.index] ?: -1)) {
+                announcedStage[next.index] = stage
+                announcement = if (distanceTo > CLOSE_ANNOUNCE_DISTANCE_M) {
                     "In ${roundedDistance(distanceTo)} Metern ${next.verbal}"
                 } else {
                     next.verbal
                 }
+                // Neue Anweisung ersetzt noch nicht gesprochene aeltere.
+                flushSpeech = true
             }
         }
 
@@ -114,6 +144,21 @@ class NavigationEngine {
             offRoute = offRoute,
             arrived = arrived,
             announcement = announcement,
+            flushSpeech = flushSpeech,
         )
+    }
+
+    private companion object {
+        /** Ab dieser Geschwindigkeit (m/s, ~68 km/h) wird frueher angesagt. */
+        const val HIGH_SPEED_MPS = 19.0
+
+        /** Ansagestufen bei hoher Geschwindigkeit (absteigend). */
+        val HIGH_SPEED_THRESHOLDS = doubleArrayOf(1000.0, 400.0, 120.0)
+
+        /** Ansagestufen bei niedriger Geschwindigkeit (absteigend). */
+        val LOW_SPEED_THRESHOLDS = doubleArrayOf(500.0, 180.0, 60.0)
+
+        /** Ab dieser Restdistanz wird die Entfernung mitgesprochen. */
+        const val CLOSE_ANNOUNCE_DISTANCE_M = 120.0
     }
 }

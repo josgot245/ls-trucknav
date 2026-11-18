@@ -3,6 +3,7 @@ package de.ls.trucknav.net
 import de.ls.trucknav.data.TruckProfile
 import de.ls.trucknav.model.GeoPoint
 import de.ls.trucknav.model.Maneuver
+import de.ls.trucknav.model.RoadClass
 import de.ls.trucknav.model.RouteResult
 import de.ls.trucknav.util.cumulativeDistances
 import de.ls.trucknav.util.decodePolyline6
@@ -130,11 +131,18 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
             if (legPoints.size < 2) continue
             val cumulative = cumulativeDistances(legPoints)
 
+            // Strasse, auf der man sich beim aktuellen Manoever befindet
+            // (Grundfarbe der Schilder). Zu Beginn eines Abschnitts unbekannt.
+            var currentRoad = RoadClass.OTHER
+
             leg["maneuvers"]?.jsonArray?.forEach { maneuverElement ->
                 val m = maneuverElement.jsonObject
                 val beginIndex = m.intOrNull("begin_shape_index") ?: 0
                 val startDistance = legOffset + (cumulative.getOrNull(beginIndex) ?: 0.0)
                 val instruction = m.stringOrNull("instruction") ?: "Weiterfahren"
+                val streetNames = m["street_names"]?.jsonArray
+                    ?.mapNotNull { it.toString().trim('"') }
+                    ?: emptyList()
                 maneuvers.add(
                     Maneuver(
                         index = maneuvers.size,
@@ -143,16 +151,24 @@ class ValhallaApi(private val client: OkHttpClient = Http.client) {
                         verbal = m.stringOrNull("verbal_pre_transition_instruction")
                             ?: m.stringOrNull("verbal_succinct_transition_instruction")
                             ?: instruction,
-                        streetNames = m["street_names"]?.jsonArray
-                            ?.mapNotNull { it.toString().trim('"') }
-                            ?: emptyList(),
+                        streetNames = streetNames,
                         startDistance = startDistance,
                         length = (m.doubleOrNull("length") ?: 0.0) * 1000.0,
                         time = m.doubleOrNull("time") ?: 0.0,
                         lanes = parseManeuverLanes(m),
-                        sign = parseManeuverSign(m),
+                        // Grundfarbe des Schilds ist die Strasse, auf der man
+                        // sich befindet (die Zielstrasse des vorigen Manoevers).
+                        sign = parseManeuverSign(m, currentRoad),
+                        roundaboutExit = m.intOrNull("roundabout_exit_count"),
                     )
                 )
+                // Nach dem Manoever faehrt man auf der Zielstrasse weiter. Sie
+                // ist damit die Ausgangsstrasse des naechsten Schilds. Leere
+                // oder unbekannte Angaben lassen die zuletzt bekannte Klasse
+                // stehen (z. B. Rampen ohne Strassennamen).
+                dominantRoadClass(streetNames)
+                    .takeIf { it != RoadClass.OTHER }
+                    ?.let { currentRoad = it }
             }
 
             // Nahtstellen zwischen Abschnitten nicht doppelt fuehren.
